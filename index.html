@@ -74,7 +74,7 @@
 
   /* ---------- HEADER ---------- */
   header{background:var(--bg2);border-bottom:1px solid var(--border);padding:8px 16px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:200;flex-wrap:wrap}
-  .hdr-icon{width:36px;height:36px;background:linear-gradient(135deg,#14b8a6,#0f766e);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0}
+  .hdr-icon{width:36px;height:36px;background:#ccfbf1;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0}
   .hdr-title{font-size:17px;font-weight:800;color:var(--teal3);line-height:1}
   .hdr-sub{font-size:10px;color:var(--text2);margin-top:2px}
   .hdr-med{display:flex;align-items:center;gap:6px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:4px 8px;font-size:11px}
@@ -86,8 +86,8 @@
   /* ---------- APP LAYOUT ---------- */
   #app{display:none}
   .topbar{display:flex;gap:6px;padding:8px 16px;background:var(--bg2);border-bottom:1px solid var(--border);flex-wrap:wrap;position:sticky;top:53px;z-index:150}
-  .topbar .ttab{background:var(--bg3);border:1px solid var(--border);color:var(--text2);border-radius:20px;padding:5px 14px;font-size:12px;font-weight:600;cursor:pointer}
-  .topbar .ttab.active{background:var(--teal);color:#fff;border-color:var(--teal)}
+  .ttab{background:var(--bg3);border:1px solid var(--border);color:var(--text2);border-radius:20px;padding:5px 14px;font-size:12px;font-weight:600;cursor:pointer}
+  .ttab.active{background:var(--teal);color:#fff;border-color:var(--teal)}
   .shell{display:flex;min-height:calc(100vh - 96px)}
   .sidenav{width:160px;flex-shrink:0;background:var(--bg2);border-right:1px solid var(--border);padding:10px 8px;display:flex;flex-direction:column;gap:3px;position:sticky;top:96px;height:calc(100vh - 96px);overflow:auto}
   .navtab{display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:9px;cursor:pointer;font-size:12.5px;font-weight:600;color:var(--text2);border:1px solid transparent}
@@ -236,7 +236,7 @@
 <!-- ============ APP ============ -->
 <div id="app">
 <header>
-  <div class="hdr-icon">🫀</div>
+  <div class="hdr-icon"><svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="10" y="2" width="8" height="14" rx="4" fill="#0D9488"/><rect x="12" y="14" width="4" height="8" rx="1" fill="#0D9488"/><line x1="14" y1="22" x2="14" y2="26" stroke="#0D9488" stroke-width="2" stroke-linecap="round"/><line x1="10" y1="24" x2="18" y2="24" stroke="#0D9488" stroke-width="1.5" stroke-linecap="round"/><ellipse cx="14" cy="8" rx="2" ry="3" fill="#ccfbf1" opacity="0.6"/></svg></div>
   <div>
     <div class="hdr-title">UltraSmart</div>
     <div class="hdr-sub">Ultrasonido Point-of-Care · CeiboMed</div>
@@ -260,7 +260,7 @@
   </div>
 </header>
 
-<div class="topbar">
+<div class="topbar" style="justify-content:flex-end">
   <button class="ttab" data-top="calc" onclick="topTab('calc')">🧮 Calculadoras</button>
   <button class="ttab" data-top="ref" onclick="topTab('ref')">📚 Referencias</button>
   <button class="ttab" data-top="clases" onclick="topTab('clases')">🎓 Clases</button>
@@ -371,14 +371,25 @@ function buildNav(){
     return '<div class="navtab'+(n[0]===curTab?' active':'')+'" onclick="goTab(\''+n[0]+'\')"><span class="ic">'+n[1]+'</span> '+n[2]+'</div>';
   }).join('');
 }
-function goTab(t){curTab=t;curTop=null;document.querySelectorAll('.topbar .ttab').forEach(function(b){b.classList.remove('active');});buildNav();renderTab(t);}
+function goTab(t){curTab=t;curTop=null;document.querySelectorAll('.ttab').forEach(function(b){b.classList.remove('active');});buildNav();renderTab(t);}
 window.goTab=goTab;
 function topTab(t){curTop=t;curTab=null;document.querySelectorAll('.sidenav .navtab').forEach(function(b){b.classList.remove('active');});
-  document.querySelectorAll('.topbar .ttab').forEach(function(b){b.classList.toggle('active',b.getAttribute('data-top')===t);});
+  document.querySelectorAll('.ttab').forEach(function(b){b.classList.toggle('active',b.getAttribute('data-top')===t);});
   renderTop(t);}
 window.topTab=topTab;
 
-function renderTab(t){var c=$('content');c.innerHTML=(TAB[t]?TAB[t]():'<div class="card"><div class="card-b">—</div></div>');restoreVals(c);recompute();window.scrollTo(0,0);
+/* Toggle "Incluir <tab> en el informe PDF" — se persiste en S['incl-<tab>'] para
+   sobrevivir el re-render al cambiar de tab; generarPDF() lo lee para ser selectivo. */
+var INCL_TABS={paciente:'Paciente',cardiaco:'Cardíaco POCUS',pulmonar:'Pulmonar',abdominal:'Abdominal / FAST',vascular:'Vascular',ocular:'Ocular',procedimientos:'Procedimientos',avanzado:'Avanzado Plus',academico:'Académico'};
+function inclToggle(t){
+  if(!INCL_TABS[t])return '';
+  var on=(S['incl-'+t]==='1');
+  return '<div style="margin-top:20px;padding:12px 14px;background:var(--head);border:1px dashed var(--border);border-radius:9px;display:flex;align-items:center;gap:10px">'
+    +'<input type="checkbox" id="incl-'+t+'"'+(on?' checked':'')+' onchange="setK(\'incl-'+t+'\',this.checked?\'1\':\'\')" style="width:16px;height:16px;accent-color:var(--teal)">'
+    +'<label for="incl-'+t+'" style="font-size:12.5px;color:var(--text2);cursor:pointer">Incluir <b style="color:var(--text)">'+INCL_TABS[t]+'</b> en el informe PDF</label>'
+    +'</div>';
+}
+function renderTab(t){var c=$('content');c.innerHTML=(TAB[t]?TAB[t]():'<div class="card"><div class="card-b">—</div></div>')+inclToggle(t);restoreVals(c);recompute();window.scrollTo(0,0);
   if(t==='procedimientos')renderProc();
   if(t==='paciente')refreshThumbs();
   if(t==='config')updateStorageInfo();
@@ -1024,6 +1035,12 @@ function generarPDF(){
   line('Fecha:',S.p_fecha);line('Indicación:',S.p_indic);line('Médico:',localStorage.getItem(MEDKEY)||S.cfg_med);
   head('Hallazgos por módulo');
   var lines=buildConclusiones();
+  // Selectividad por tab: si hay checkboxes "Incluir … en el informe PDF" marcados,
+  // el informe incluye SOLO los módulos de los tabs seleccionados. Si no hay ninguno
+  // marcado, se incluye todo (comportamiento del botón global, sin cambios).
+  var INCL_MAP={'Cardíaco':'cardiaco','Pulmonar':'pulmonar','Abdominal/FAST':'abdominal','Vascular':'vascular','Ocular':'ocular','DTC':'avanzado'};
+  var anyIncl=Object.keys(INCL_TABS).some(function(t){return S['incl-'+t]==='1';});
+  if(anyIncl){lines=lines.filter(function(l){var t=INCL_MAP[l[0]];if(!t||!INCL_TABS[t])return true;return S['incl-'+t]==='1';});}
   doc.setFontSize(9.5);
   if(lines.length){lines.forEach(function(l){doc.setFont('helvetica','bold');doc.setTextColor(3,105,161);doc.text(l[0]+':',14,y);
     doc.setFont('helvetica','normal');doc.setTextColor(30,30,30);var wrapped=doc.splitTextToSize(l[1],125);doc.text(wrapped,60,y);y+=Math.max(6,wrapped.length*4.6);
@@ -1031,6 +1048,33 @@ function generarPDF(){
   else{doc.text('Sin hallazgos cargados.',14,y);y+=6;}
   head('Conclusión integrada');
   doc.setFont('helvetica','normal');doc.setFontSize(10);var cc=doc.splitTextToSize(S.inf_concl||'—',W-28);doc.text(cc,14,y);y+=cc.length*5+6;
+  // ── Valoración hemodinámica (si el checkbox está marcado) ──
+  if(S['incl-hemodinamia']==='1'&&typeof hdReportData==='function'){
+    var _hdr=hdReportData();
+    if(_hdr.length){head('Valoración hemodinámica');doc.setFontSize(9.5);
+      _hdr.forEach(function(r){doc.setFont('helvetica','bold');doc.setTextColor(3,105,161);doc.text(r[0]+':',14,y);doc.setFont('helvetica','normal');doc.setTextColor(30,30,30);var w=doc.splitTextToSize(String(r[1]),120);doc.text(w,60,y);y+=Math.max(6,w.length*4.6);if(y>250){doc.addPage();y=20;}});
+      doc.setFont('helvetica','italic');doc.setFontSize(7.5);doc.setTextColor(120,120,120);doc.text('Orientativo — no reemplaza el juicio clínico.',14,y);y+=6;doc.setTextColor(30,30,30);}
+  }
+  // ── Procedimientos realizados (si el checkbox está marcado) ──
+  if(S['incl-procedimientos']==='1'&&typeof procReportData==='function'){
+    var _prc=procReportData();
+    if(_prc.length){head('Procedimientos realizados');
+      _prc.forEach(function(pr){if(y>245){doc.addPage();y=20;}
+        doc.setFont('helvetica','bold');doc.setFontSize(10);doc.setTextColor(13,148,136);doc.text(String(pr.name),14,y);y+=6;doc.setTextColor(30,30,30);doc.setFontSize(9.5);
+        pr.campos.forEach(function(r){doc.setFont('helvetica','bold');doc.setTextColor(3,105,161);doc.text(r[0]+':',14,y);doc.setFont('helvetica','normal');doc.setTextColor(30,30,30);var w=doc.splitTextToSize(String(r[1]),115);doc.text(w,66,y);y+=Math.max(6,w.length*4.6);if(y>250){doc.addPage();y=20;}});
+        doc.setFont('helvetica','bold');doc.setTextColor(3,105,161);doc.text('Checklist:',14,y);doc.setFont('helvetica','normal');doc.setTextColor(30,30,30);doc.text(pr.checkDone+' / '+pr.checkTotal+' ítems completados',66,y);y+=8;});}
+  }
+  // ── Protocolos incluidos en el informe ──
+  if(typeof protoReportData==='function'){
+    var _pr=protoReportData();
+    if(_pr.length){head('Protocolos ecográficos');
+      _pr.forEach(function(r){if(y>245){doc.addPage();y=20;}
+        doc.setFont('helvetica','bold');doc.setFontSize(10);doc.setTextColor(13,148,136);doc.text(String(r.name),14,y);y+=5.5;
+        doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(90,90,90);doc.text('Fecha: '+r.fecha,14,y);y+=5;doc.setTextColor(30,30,30);
+        var cw=doc.splitTextToSize('Camino: '+(r.camino||'—'),182);doc.text(cw,14,y);y+=cw.length*4.4+1;
+        doc.setFont('helvetica','bold');doc.setTextColor(190,40,40);var dw=doc.splitTextToSize('Diagnóstico: '+r.dx,182);doc.text(dw,14,y);y+=dw.length*4.6;
+        doc.setFont('helvetica','normal');doc.setTextColor(30,30,30);var sw=doc.splitTextToSize('Manejo: '+r.sug,182);doc.text(sw,14,y);y+=sw.length*4.4+3;});}
+  }
   // images (max 4)
   imgAll(function(all){
     var imgs=all.filter(function(x){return x.studyId==='current';}).slice(0,4);
@@ -1165,6 +1209,318 @@ function updateStorageInfo(){var el=$('storageInfo');if(!el)return;
   imgAll(function(all){el.innerHTML='Uso aproximado localStorage: <b>'+used+' KB</b> · Imágenes almacenadas (IndexedDB): <b>'+all.length+'</b>'+(all.length>500?' <span class="tag bad">límite recomendado superado</span>':'');});
 }
 window.updateStorageInfo=updateStorageInfo;
+</script>
+<script>
+/* ═══════════════════════════════════════════════════════════════════════
+   UltraSmart — Tabs adicionales (ADITIVO, no modifica nada existente)
+   1) Hemodinámica: calculadoras en tiempo real + motor diagnóstico
+   2) Protocolos: 7 wizards interactivos (RUSH · FALLS · BLUE · FAST/eFAST ·
+      CAUSE · SESAME · HIMAP)
+   ═══════════════════════════════════════════════════════════════════════ */
+(function(){
+  function insAfter(id,e){for(var i=0;i<NAV.length;i++){if(NAV[i][0]===id){NAV.splice(i+1,0,e);return;}}}
+  insAfter('cardiaco',['hemodinamia','💧','Hemodinámica']);
+  insAfter('procedimientos',['protocolos','📋','Protocolos']);
+})();
+
+/* ───────── Cálculos hemodinámicos (compartidos por UI y PDF) ───────── */
+function hdGC(){var d=num(S.hd_dtsvi),vti=num(S.hd_vti),fc=num(S.hd_fc);var area=(d!=null)?0.785*Math.pow(d/10,2):null;var vs=(area!=null&&vti!=null)?area*vti:null;var gc=(vs!=null&&fc!=null)?vs*fc/1000:null;return {area:area,vs:vs,gc:gc};}
+function hdPLR(){var b=num(S.hd_vti_bas),p=num(S.hd_vti_plr);if(b!=null&&p!=null&&b!==0)return (p-b)/b*100;return null;}
+function hdDiagnose(){
+  var c=S.hd_contract,v=S.hd_vci,lb=S.hd_lineasb,vd=S.hd_vd,fa=S.hd_fast,pe=S.hd_peri,tv=S.hd_tvp,sl=S.hd_sliding;
+  if(!c&&!v&&!lb&&!vd&&!fa&&!pe&&!tv&&!sl)return null;
+  var R=function(dx,color,reason,sug){return {dx:dx,color:color,reason:reason,sug:sug};};
+  /* 1 — OBSTRUCTIVO */
+  if(pe==='Derrame / taponamiento')return R('Taponamiento cardíaco','red','derrame pericárdico con compromiso hemodinámico','Pericardiocentesis eco-guiada urgente.');
+  if(vd==='Dilatado'&&tv==='Presente')return R('TEP masivo probable','red','VD dilatado + TVP = S81% E99%','Anticoagulación urgente. Si inestable: trombolisis.');
+  if(sl==='Ausente')return R('Neumotórax a tensión probable','red','ausencia de lung sliding bilateral','Descompresión inmediata 2° EIC línea medioclavicular.');
+  /* 2 — CARDIOGÉNICO */
+  if(c==='Hipodinámica'&&v==='Distendida'&&lb==='Presentes bilateral')return R('Shock cardiogénico','red','hipocontractilidad + congestión pulmonar + VCI distendida','Inotrópicos (dobutamina). Evaluar causa. Coronariografía si SCA.');
+  /* 3 — HIPOVOLÉMICO */
+  if(c==='Hiperdinámica'&&v==='Colapsada'&&fa==='Positivo (líquido libre)')return R('Shock hipovolémico hemorrágico','red','hipercontractilidad compensadora + VCI colapsada + hemoperitoneo','Reposición urgente con hemoderivados. Evaluar cirugía.');
+  if(c==='Hiperdinámica'&&v==='Colapsada'&&fa==='Negativo'&&lb==='Ausentes (perfil A)')return R('Shock hipovolémico','red','hipercontractilidad + VCI colapsada sin fuente hemorrágica evidente','Reposición guiada por US (PLR + delta VTI).');
+  /* 4 — DISTRIBUTIVO / SÉPTICO */
+  if(c==='Hiperdinámica'&&(v==='Colapsada'||v==='Normal')&&lb==='Ausentes (perfil A)'&&fa==='Negativo')return R('Shock distributivo (séptico probable)','red','patrón hiperdinámico sin causa obstructiva ni hemorrágica','Hemocultivos, antibióticos, vasopresores. Fluidoterapia guiada.');
+  /* 5 — INDETERMINADO */
+  return R('Completar evaluación','yellow','faltan hallazgos para orientar el diagnóstico','Completá los hallazgos para orientar el diagnóstico.');
+}
+/* Datos para el PDF (puros, sin efectos) */
+function hdReportData(){
+  var out=[];
+  if(S.hd_vci_max||S.hd_vci_min)out.push(['VCI máx/mín',(S.hd_vci_max||'—')+' / '+(S.hd_vci_min||'—')+' mm · colapso '+(S.hd_colapso||'—')+' · '+(S.hd_modo||'—')]);
+  var g=hdGC();if(g.gc!=null)out.push(['Gasto cardíaco','VS '+fmt(g.vs,1)+' ml · GC '+fmt(g.gc,2)+' L/min']);
+  var plr=hdPLR();if(plr!=null)out.push(['PLR (ΔVTI)',fmt(plr,0)+'% '+(plr>12?'→ respondedor a volumen':'→ no respondedor')]);
+  var f=[];[['hd_contract','Contractilidad'],['hd_vci','VCI'],['hd_lineasb','Líneas B'],['hd_vd','VD'],['hd_fast','FAST'],['hd_peri','Pericardio'],['hd_tvp','TVP'],['hd_sliding','Lung sliding']].forEach(function(p){if(S[p[0]])f.push(p[1]+': '+S[p[0]]);});
+  if(f.length)out.push(['Hallazgos',f.join(' · ')]);
+  var dx=hdDiagnose();if(dx){out.push(['Diagnóstico sugerido',dx.dx]);out.push(['Razonamiento',dx.reason]);out.push(['Manejo orientativo',dx.sug]);}
+  return out;
+}
+/* Actualización en tiempo real */
+function hdRecompute(){
+  if(!$('hd_precarga')&&!$('hd_dx'))return;
+  var pc=$('hd_precarga');
+  if(pc){var dmax=num(S.hd_vci_max),dmin=num(S.hd_vci_min),col=S.hd_colapso,modo=S.hd_modo,out='Complete los campos.';
+    if(modo==='ARM'&&dmax!=null&&dmin!=null&&dmin>0){var idv=(dmax-dmin)/dmin*100,ivv=(dmax-dmin)/((dmax+dmin)/2)*100;
+      out='<b>ARM.</b> ID-VCI = '+fmt(idv,0)+'% ('+(idv>18?'&gt;18% → respondedor a volumen (S/E &gt;90%)':'≤18% → no respondedor')+')<br>IV-VCI = '+fmt(ivv,0)+'% ('+(ivv>12?'&gt;12% → respondedor a volumen':'≤12% → no respondedor')+')';
+    } else if(dmax!=null){var big=dmax>21,pad;
+      if(!big&&col==='>50%')pad='~3 mmHg';else if(!big&&col==='<50%')pad='~8 mmHg';else if(big&&col==='>50%')pad='~8 mmHg';else if(big&&col==='<50%')pad='~15 mmHg';else if(big&&!col)pad='~20 mmHg (sin colapso)';else pad='—';
+      out='<b>Respiración espontánea.</b> VCI '+(big?'&gt;21':'&lt;21')+' mm + colapso '+(col||'—')+' → PAD estimada '+pad+'.';
+    }
+    pc.innerHTML=out;}
+  var g=hdGC();setTxt('hd_vs',g.vs!=null?fmt(g.vs,1)+' ml':'—');setTxt('hd_gc',g.gc!=null?fmt(g.gc,2)+' L/min':'—');
+  var plrEl=$('hd_plr');if(plrEl){var d=hdPLR();plrEl.innerHTML=(d==null)?'Ingrese VTI basal y post-PLR.':('ΔVTI = '+fmt(d,0)+'% — '+(d>12?'🟢 <b>Respondedor a volumen</b> (S/E &gt;90%)':'🔴 <b>No respondedor</b> — evitar fluidos'));}
+  var dxEl=$('hd_dx');
+  if(dxEl){var r=hdDiagnose();
+    if(!r){dxEl.innerHTML='<div class="hint">Cargue los hallazgos para el motor diagnóstico.</div>';}
+    else{var color=r.color==='red'?'#e11d2b':'#c78100';
+      dxEl.innerHTML='<div style="font-size:16px;font-weight:800;color:'+color+';margin-bottom:6px">'+(r.color==='red'?'🔴':'🟡')+' '+escHtml(r.dx)+'</div>'+
+        '<div style="font-size:12.5px;margin-bottom:6px"><b>Porque:</b> '+escHtml(r.reason)+'.</div>'+
+        '<div style="font-size:11.5px;color:var(--text2);line-height:1.5;margin-bottom:8px">'+escHtml(r.sug)+'</div>'+
+        '<div style="font-size:10.5px;color:var(--text2);font-style:italic">⚠️ Orientativo — no reemplaza el juicio clínico</div>';}
+  }
+}
+/* Patch aditivo de recompute: corre el original y luego hdRecompute */
+(function(){var _o=recompute;recompute=function(){_o.apply(this,arguments);try{hdRecompute();}catch(e){}};})();
+
+/* ───────── TAB Hemodinámica ───────── */
+TAB.hemodinamia=function(){
+  var s1=card('💧 VCI y precarga',
+    '<div class="grid4">'+inp('hd_vci_max','VCI máx (mm)','','number')+inp('hd_vci_min','VCI mín (mm)','','number')+segf('hd_colapso','Colapso inspiratorio',['<50%','>50%'])+segf('hd_modo','Modo ventilatorio',['Respiración espontánea','ARM'])+'</div>'+
+    '<div class="concl" id="hd_precarga" style="margin-top:12px"></div>');
+  var s2=card('📊 VTI / Gasto cardíaco',
+    '<div class="grid3">'+inp('hd_dtsvi','DTSVI (mm)','','number')+inp('hd_vti','VTI TSVI (cm)','','number')+inp('hd_fc','FC (lpm)','','number')+'</div>'+
+    '<div class="grid2" style="margin-top:8px"><div><label class="fl">Volumen sistólico</label><div class="in" id="hd_vs" style="background:var(--bg2)">—</div></div><div><label class="fl">Gasto cardíaco</label><div class="in" id="hd_gc" style="background:var(--bg2)">—</div></div></div>'+
+    '<div class="hint">Área = 0.785 × (DTSVI/10)² · VS = Área × VTI · GC = VS × FC / 1000</div>');
+  var s3=card('🦵 PLR — Passive Leg Raising',
+    '<div class="grid2">'+inp('hd_vti_bas','VTI basal (cm)','','number')+inp('hd_vti_plr','VTI post-PLR (cm)','','number')+'</div>'+
+    '<div class="concl" id="hd_plr" style="margin-top:12px"></div>');
+  var s4=card('🧠 Hallazgos — motor diagnóstico',
+    '<div class="grid2">'+
+    segf('hd_contract','Contractilidad VI',['Normal','Hipodinámica','Hiperdinámica'])+
+    segf('hd_vci','VCI',['Colapsada','Normal','Distendida'])+
+    segf('hd_lineasb','Líneas B pulmonares',['Ausentes (perfil A)','Presentes bilateral'])+
+    segf('hd_vd','VD',['Normal','Dilatado'])+
+    segf('hd_fast','FAST abdominal',['Negativo','Positivo (líquido libre)'])+
+    segf('hd_peri','Pericardio',['Sin derrame','Derrame / taponamiento'])+
+    segf('hd_tvp','TVP',['No','Presente'])+
+    segf('hd_sliding','Lung sliding',['Presente','Ausente'])+'</div>'+
+    '<div id="hd_dx" style="margin-top:14px;padding:14px;border:1px solid var(--teal);border-radius:12px;background:linear-gradient(135deg,rgba(13,148,136,.10),rgba(3,105,161,.06))"></div>');
+  var pdf='<div style="margin-top:20px;padding:12px 14px;background:var(--head);border:1px dashed var(--border);border-radius:9px;display:flex;align-items:center;gap:10px">'+
+    '<input type="checkbox" id="incl-hemodinamia"'+(S['incl-hemodinamia']==='1'?' checked':'')+' onchange="setK(\'incl-hemodinamia\',this.checked?\'1\':\'\')" style="width:16px;height:16px;accent-color:var(--teal)">'+
+    '<label for="incl-hemodinamia" style="font-size:12.5px;color:var(--text2);cursor:pointer">Incluir <b style="color:var(--text)">Valoración Hemodinámica</b> en el informe PDF</label></div>';
+  return s1+s2+s3+s4+pdf;
+};
+
+/* ───────── TAB Protocolos — wizards ───────── */
+var PROTO_LABEL={rush:'RUSH',falls:'FALLS',blue:'BLUE',fast:'FAST/eFAST',cause:'CAUSE',sesame:'SESAME',himap:'HIMAP'};
+var PROTOCOLS={
+  rush:{name:'RUSH — Rapid Ultrasound in Shock',start:'p1',nodes:{
+    p1:{q:'LA BOMBA — ¿Cómo es la contractilidad del VI?',opts:[['Hipodinámica','p1b'],['Normal / Hiperdinámica','p2']]},
+    p1b:{q:'¿Hay derrame pericárdico con colapso de cavidades derechas?',opts:[['Sí','r_tap'],['No','p1c']]},
+    p1c:{q:'¿Hay VD dilatado (VD ≥ VI)?',opts:[['Sí','r_tep'],['No','p2']]},
+    p2:{q:'EL TANQUE — ¿Cómo está la VCI?',opts:[['Colapsada (<15 mm, colapso >50%)','p3'],['Distendida (>21 mm, sin colapso)','p2b'],['Normal','p2c']]},
+    p2b:{q:'¿Líneas B bilaterales?',opts:[['Sí','r_cardio'],['No','r_obst']]},
+    p2c:{q:'¿Líneas B bilaterales?',opts:[['Sí','r_cardio_vn'],['No','r_distr']]},
+    p3:{q:'LOS TUBOS — ¿FAST positivo o aorta dilatada?',opts:[['Sí','r_hipohem'],['No','p3b']]},
+    p3b:{q:'¿TVP femoral o poplítea?',opts:[['Sí','r_tep'],['No','r_hipono']]},
+    r_tap:{dx:'Taponamiento cardíaco',color:'red',sug:'Pericardiocentesis eco-guiada urgente.'},
+    r_tep:{dx:'TEP masivo / shock obstructivo',color:'red',sug:'Anticoagulación. Trombolisis si inestable.'},
+    r_cardio:{dx:'Shock cardiogénico',color:'red',sug:'Inotrópicos, evaluar BCPIA, diuréticos.'},
+    r_obst:{dx:'Shock obstructivo — buscar causa',color:'red',sug:'Descartar y tratar taponamiento, TEP o neumotórax a tensión.'},
+    r_cardio_vn:{dx:'Shock cardiogénico con VCI normal',color:'red',sug:'Inotrópicos; evaluar causa. Optimizar precarga con cautela.'},
+    r_distr:{dx:'Shock distributivo / séptico',color:'red',sug:'Hemocultivos, ATB, vasopresores.'},
+    r_hipohem:{dx:'Shock hipovolémico hemorrágico',color:'red',sug:'Hemoderivados, evaluar cirugía urgente.'},
+    r_hipono:{dx:'Shock hipovolémico no hemorrágico',color:'red',sug:'Reposición guiada por US (PLR + delta VTI).'}
+  }},
+  falls:{name:'FALLS — Fluid Administration Limited by Lung Sonography',start:'f1',nodes:{
+    f1:{q:'¿Hay taponamiento cardíaco o TEP evidente (VD dilatado + TVP)?',opts:[['Sí','fr_obst'],['No','f2']]},
+    f2:{q:'¿Patrón pulmonar anterior?',opts:[['Perfil B (líneas B bilaterales)','fr_cardio'],['Perfil A (líneas A)','f3']]},
+    f3:{q:'FALLS-Responder — iniciaste fluidos. ¿Mejoría clínica sostenida?',opts:[['Sí, mejoría','fr_hipo'],['No mejoría, apareció perfil B','fr_endpoint'],['No mejoría, persiste perfil A','fr_septico']]},
+    fr_obst:{dx:'Shock obstructivo — tratar la causa',color:'red',sug:'Tratar taponamiento (pericardiocentesis) o TEP (anticoagulación/trombólisis) según hallazgo.'},
+    fr_cardio:{dx:'Shock cardiogénico (PCP >18 mmHg)',color:'red',sug:'Congestión pulmonar. Inotrópicos/diuréticos; evitar sobrecarga de volumen.'},
+    fr_hipo:{dx:'Shock hipovolémico',color:'red',sug:'Continuar reposición guiada; identificar y corregir la causa de las pérdidas.'},
+    fr_endpoint:{dx:'FALLS-endpoint — Shock séptico (detener fluidos)',color:'red',sug:'La aparición de líneas B marca el límite de fluidos. Vasopresores; antibióticos.'},
+    fr_septico:{dx:'Shock séptico probable',color:'red',sug:'Antibióticos precoces, control del foco, vasopresores; volumen según respuesta.'}
+  }},
+  blue:{name:'BLUE — Bedside Lung Ultrasound in Emergency',start:'b1',nodes:{
+    b1:{q:'¿Lung sliding presente en Blue Points (anterior superior e inferior)?',opts:[['Presente bilateral','b2'],['Ausente','b5']]},
+    b2:{q:'¿Cuál es el patrón pulmonar anterior?',opts:[['Perfil B bilateral (≥3 líneas B/campo)','br_eap'],['Perfil A','b3'],['Perfil A/B asimétrico o consolidación anterior','br_neu']]},
+    b3:{q:'¿Hay TVP en análisis venoso secuencial?',opts:[['Sí','br_tep'],['No','b4']]},
+    b4:{q:'Punto PLAPS (línea frénica + axilar posterior) — ¿qué encontrás?',opts:[['Consolidación','br_neu2'],['Derrame pleural','br_neuderr'],['Libre (sin hallazgos)','br_epoc']]},
+    b5:{q:'¿Hay líneas B en la zona sin sliding?',opts:[["Sí (perfil B')",'br_neu3'],["No (perfil A')",'b6']]},
+    b6:{q:'¿Encontrás lung point?',opts:[['Sí','br_ntx'],['No','br_indet']]},
+    br_eap:{dx:'Edema pulmonar (S97% E95%)',color:'red',sug:'Insuficiencia cardíaca / EAP. Diuréticos, vasodilatadores, VNI según clínica.'},
+    br_neu:{dx:'Neumonía',color:'yellow',sug:'Patrón asimétrico / consolidación anterior. Antibióticos según foco y gravedad.'},
+    br_tep:{dx:'TEP probable (S81% E99%)',color:'red',sug:'Perfil A + TVP. Anticoagulación; confirmar con angio-TC si el paciente está estable.'},
+    br_neu2:{dx:'Neumonía (S89% E94%)',color:'yellow',sug:'Consolidación en PLAPS. Antibióticos; valorar broncograma aéreo dinámico.'},
+    br_neuderr:{dx:'Neumonía con derrame',color:'yellow',sug:'Consolidación + derrame. Antibióticos; considerar toracocentesis diagnóstica.'},
+    br_epoc:{dx:'EPOC / Asma (S89% E97%)',color:'yellow',sug:'Perfil A con PLAPS libre. Broncodilatadores/corticoides; buscar causa de descompensación.'},
+    br_neu3:{dx:'Neumonía',color:'yellow',sug:"Perfil B' (sin sliding con líneas B). Antibióticos según contexto clínico."},
+    br_ntx:{dx:'Neumotórax confirmado (S81% E100%)',color:'red',sug:'Lung point presente. Descompresión / drenaje según tamaño y clínica.'},
+    br_indet:{dx:'Indeterminado — otras técnicas diagnósticas',color:'yellow',sug:'Sin lung point ni líneas B. Complementar con radiografía / TC según sospecha.'}
+  }},
+  fast:{name:'FAST / eFAST — Trauma',start:'t1',nodes:{
+    t1:{q:'¿Mecanismo de trauma?',opts:[['Penetrante','t1b'],['Cerrado','t2']]},
+    t1b:{q:'¿Derrame pericárdico en ventana subxifoidea?',opts:[['Sí','tr_tap'],['No','t2']]},
+    t2:{q:'¿Líquido libre en espacio de Morrison (costodiafragmático D)?',opts:[['Sí','t2b'],['No','t3']]},
+    t2b:{q:'¿Paciente hemodinámicamente inestable?',opts:[['Sí','tr_lap'],['No','tr_tc']]},
+    t3:{q:'¿Líquido libre en esplenorrenal izquierdo o suprapúbico?',opts:[['Sí','t3b'],['No','t4']]},
+    t3b:{q:'¿Paciente inestable?',opts:[['Sí','tr_lap'],['No','tr_tc']]},
+    t4:{q:'eFAST tórax — ¿ausencia de lung sliding uni o bilateral?',opts:[['Sí','tr_ntx'],['No','tr_neg']]},
+    tr_tap:{dx:'Taponamiento / lesión cardíaca — cirugía urgente',color:'red',sug:'Ventana subxifoidea positiva. Toracotomía / pericardiocentesis; quirófano urgente.'},
+    tr_lap:{dx:'FAST positivo + inestable — Laparotomía exploradora urgente',color:'red',sug:'Líquido libre con inestabilidad. Laparotomía; activar protocolo de transfusión masiva.'},
+    tr_tc:{dx:'FAST positivo + estable — TC abdominal',color:'yellow',sug:'Estable: TC con contraste para caracterizar la lesión y decidir manejo (conservador vs quirúrgico).'},
+    tr_ntx:{dx:'Neumotórax — evaluar descompresión',color:'red',sug:'Ausencia de sliding. Descompresión / drenaje según clínica y tamaño.'},
+    tr_neg:{dx:'eFAST negativo — repetir si cambio clínico',color:'yellow',sug:'Sin líquido ni neumotórax. Vigilancia; repetir ante deterioro (FAST seriado).'}
+  }},
+  cause:{name:'CAUSE — Cardiac Arrest Ultra-Sound Exam',start:'c1',intro:'Iniciar por ventana subxifoidea — evalúa el corazón sin interrumpir las compresiones. Para PCR no arritmogénica (AESP / Asistolia).',nodes:{
+    c1:{q:'¿Derrame pericárdico con colapso de cavidades derechas?',opts:[['Sí','cr_tap'],['No','c2']]},
+    c2:{q:'¿VI y VD ambos colapsados / chatos (signo del beso)?',opts:[['Sí','cr_hipo'],['No','c3']]},
+    c3:{q:'¿VD muy dilatado + VI pequeño comprimido?',opts:[['Sí','cr_tep'],['No','c4']]},
+    c4:{q:'¿Ausencia de lung sliding bilateral?',opts:[['Sí','cr_ntx'],['No','c5']]},
+    c5:{q:'¿Líquido libre abdominal abundante (FAST)?',opts:[['Sí','cr_hem'],['No','cr_noUS']]},
+    cr_tap:{dx:'Taponamiento',color:'red',sug:'Pericardiocentesis eco-guiada durante la RCP. Reanudar compresiones de inmediato.'},
+    cr_hipo:{dx:'Hipovolemia severa',color:'red',sug:'Reposición volumétrica agresiva (cristaloides / hemoderivados). Buscar el sangrado.'},
+    cr_tep:{dx:'TEP masivo',color:'red',sug:'Trombólisis durante la RCP (Alteplase 50 mg IV). Prolongar la reanimación.'},
+    cr_ntx:{dx:'Neumotórax a tensión',color:'red',sug:'Descompresión inmediata bilateral (toracostomía con aguja / dedo).'},
+    cr_hem:{dx:'Hemorragia interna',color:'red',sug:'Control quirúrgico urgente. Transfusión masiva; corregir coagulopatía.'},
+    cr_noUS:{dx:'Causa no detectable por US — continuar RCP y ACLS',color:'yellow',sug:'Considerar electrolitos, hipotermia, toxinas, IAM. Seguir el algoritmo ACLS.'}
+  }},
+  sesame:{name:'SESAME — Lichtenstein (PCR)',start:'s1',intro:'Protocolo de 5 pasos durante la RCP (~46 s). No interrumpir compresiones. Transductor microconvex.',nodes:{
+    s1:{q:'PASO 1 (0-10 s) PULMÓN — ¿ausencia de lung sliding bilateral?',opts:[['Sí','sr_ntx'],['No','s2']]},
+    s2:{q:'PASO 2 (10-20 s) VENAS FEMORALES — ¿TVP femoral bilateral (venas no compresibles)?',opts:[['Sí','sr_tep'],['No','s3']]},
+    s3:{q:'PASO 3 (20-30 s) ABDOMEN — ¿líquido libre abdominal abundante?',opts:[['Sí','sr_hipo'],['No','s4']]},
+    s4:{q:'PASO 4 (28-34 s) PERICARDIO (subxifoideo) — ¿derrame con colapso de cavidades?',opts:[['Sí','sr_tap'],['No','s5']]},
+    s5:{q:'PASO 5 (34-46 s) ETT — ¿hay actividad mecánica cardíaca visible?',opts:[['Sí, con actividad','sr_aesp'],['No, sin actividad','sr_asist'],['FV fina visible','sr_fv']]},
+    sr_ntx:{dx:'Neumotórax como causa probable',color:'red',sug:'Descompresión. Reanudar compresiones.'},
+    sr_tep:{dx:'TEP masivo probable',color:'red',sug:'Trombólisis durante la RCP. Prolongar la reanimación.'},
+    sr_hipo:{dx:'Hipovolemia por hemorragia interna',color:'red',sug:'Cirugía urgente. Transfusión masiva.'},
+    sr_tap:{dx:'Taponamiento',color:'red',sug:'Pericardiocentesis eco-guiada.'},
+    sr_aesp:{dx:'AESP verdadera — buscar causas reversibles',color:'yellow',sug:'Actividad mecánica presente. Revisar electrolitos, toxinas, hipotermia (5H/5T).'},
+    sr_asist:{dx:'Asistolia confirmada — evaluar pronóstico y límite terapéutico',color:'yellow',sug:'Sin actividad mecánica. Considerar el cese según contexto y tiempo de RCP.'},
+    sr_fv:{dx:'Fibrilación ventricular fina — cardioversión inmediata',color:'red',sug:'Desfibrilación inmediata. Reanudar compresiones tras la descarga.'}
+  }},
+  himap:{name:'HIMAP — Hipotensión en UCI',start:'h1',nodes:{
+    h1:{q:'H — HEART — ¿derrame pericárdico con colapso, o VI muy hipoquinético?',opts:[['Derrame / taponamiento','hr_obst'],['VI hipoquinético','hr_cardio'],['Normal o hiperdinámica','h_i']]},
+    h_i:{q:'I — IVC — ¿cómo está la VCI?',opts:[['Colapsada (<15 mm)','h_m'],['Distendida (>21 mm)','h_a']]},
+    h_m:{q:'M — MORRISON — ¿líquido libre en FAST abdominal?',opts:[['Sí','hr_hem'],['No','hr_nohem']]},
+    h_a:{q:'A — AORTA / PULMÓN — ¿VD dilatado con TVP o ausencia de lung sliding?',opts:[['Sí','hr_obst2'],['No','h_p']]},
+    h_p:{q:'P — PERITONEAL — ¿líneas B bilaterales o derrame pleural bilateral?',opts:[['Sí','hr_congest'],['No','hr_distr']]},
+    hr_obst:{dx:'Shock obstructivo por taponamiento',color:'red',sug:'Pericardiocentesis eco-guiada. Reposición mientras se drena.'},
+    hr_cardio:{dx:'Shock cardiogénico',color:'red',sug:'Inotrópicos, precarga cautelosa; evaluar isquemia y soporte mecánico.'},
+    hr_hem:{dx:'Shock hipovolémico hemorrágico',color:'red',sug:'Reposición con hemoderivados; control del sangrado / cirugía.'},
+    hr_nohem:{dx:'Shock hipovolémico no hemorrágico (deshidratación, pérdidas GI)',color:'red',sug:'Reposición guiada por US; corregir pérdidas GI / deshidratación.'},
+    hr_obst2:{dx:'Shock obstructivo (TEP o NTx)',color:'red',sug:'TEP: anticoagulación / trombólisis. NTx: descompresión. Soporte hemodinámico.'},
+    hr_congest:{dx:'Shock cardiogénico con congestión',color:'red',sug:'Líneas B / derrame bilateral. Inotrópicos / diuréticos; evitar sobrecarga.'},
+    hr_distr:{dx:'Shock distributivo / séptico',color:'red',sug:'Antibióticos precoces, control del foco, vasopresores; volumen según respuesta.'}
+  }}
+};
+var PW={proto:'rush',node:'p1',path:[]};
+function protoReset(id){PW.proto=id;PW.node=PROTOCOLS[id].start;PW.path=[];}
+function protoWrapHTML(){
+  var bar='<div class="seg" style="margin-bottom:14px;overflow-x:auto;flex-wrap:nowrap">'+Object.keys(PROTOCOLS).map(function(id){return '<button'+(id===PW.proto?' class="on"':'')+' onclick="protoShow(\''+id+'\')">'+PROTO_LABEL[id]+'</button>';}).join('')+'</div>';
+  return bar+'<div id="protoBody">'+protoRender()+'</div>';
+}
+function protoRender(){
+  var P=PROTOCOLS[PW.proto],n=P.nodes[PW.node];if(!n)return '';
+  if(n.dx){
+    var col=n.color==='red'?'#e11d2b':(n.color==='yellow'?'#c78100':'#0d9488');
+    var camino=PW.path.map(function(p){return p.a;}).join(' → ')||'—';
+    return '<div style="border:2px solid '+col+';border-radius:14px;padding:16px;background:linear-gradient(135deg,rgba(225,29,43,.06),rgba(3,105,161,.04))">'+
+      '<div style="font-size:11.5px;font-weight:700;color:var(--text2);letter-spacing:.5px">'+(n.color==='yellow'?'🟡':'🔴')+' DIAGNÓSTICO PROBABLE</div>'+
+      '<div style="font-size:20px;font-weight:800;color:'+col+';margin:6px 0 12px">'+escHtml(n.dx)+'</div>'+
+      '<div style="font-size:12.5px;margin-bottom:9px"><b>Razonamiento:</b> Basado en: '+escHtml(camino)+'.</div>'+
+      '<div style="font-size:11.5px;color:var(--text2);line-height:1.55;margin-bottom:10px"><b style="color:var(--text)">Sugerencia orientativa:</b> '+escHtml(n.sug)+'</div>'+
+      '<div style="font-size:10.5px;color:var(--text2);font-style:italic;margin-bottom:13px">⚠️ Orientativo — no reemplaza el juicio clínico ni la evaluación integral del paciente</div>'+
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
+        '<button class="btn btn-ghost btn-sm" onclick="protoRestart()">🔄 Reiniciar protocolo</button>'+
+        '<button class="btn btn-blue btn-sm" onclick="protoInclude()">📄 Incluir resultado en informe PDF</button>'+
+      '</div></div>';
+  }
+  var h='';
+  if(P.intro&&PW.path.length===0)h+='<div class="hint" style="margin-bottom:12px">'+escHtml(P.intro)+'</div>';
+  if(n.instr)h+='<div class="hint" style="margin-bottom:12px">📍 '+escHtml(n.instr)+'</div>';
+  h+='<div style="font-size:14px;font-weight:700;margin-bottom:14px">'+escHtml(n.q)+'</div>';
+  h+='<div style="display:flex;flex-direction:column;gap:9px">'+n.opts.map(function(o,i){return '<button class="btn btn-ghost" style="justify-content:flex-start;text-align:left;padding:11px 14px" onclick="protoAnswer('+i+')">'+escHtml(o[0])+'</button>';}).join('')+'</div>';
+  h+='<div style="display:flex;gap:8px;margin-top:16px">'+(PW.path.length?'<button class="btn btn-ghost btn-sm" onclick="protoBack()">← Atrás</button>':'')+'<button class="btn btn-ghost btn-sm" onclick="protoRestart()">🔄 Reiniciar</button></div>';
+  return h;
+}
+function protoShow(id){protoReset(id);var w=$('protoWrap');if(w)w.innerHTML=protoWrapHTML();}
+function protoAnswer(i){var n=PROTOCOLS[PW.proto].nodes[PW.node];var o=n.opts[i];PW.path.push({q:n.q,a:o[0],node:PW.node});PW.node=o[1];var b=$('protoBody');if(b)b.innerHTML=protoRender();}
+function protoBack(){if(!PW.path.length)return;var last=PW.path.pop();PW.node=last.node;var b=$('protoBody');if(b)b.innerHTML=protoRender();}
+function protoRestart(){PW.node=PROTOCOLS[PW.proto].start;PW.path=[];var b=$('protoBody');if(b)b.innerHTML=protoRender();}
+function protoInclude(){var P=PROTOCOLS[PW.proto],n=P.nodes[PW.node];if(!n||!n.dx){toast('Complete el protocolo hasta el diagnóstico');return;}
+  var camino=PW.path.map(function(p){return p.a;}).join(' → ');
+  S.__protoReports=S.__protoReports||{};S.__protoReports[PW.proto]={name:P.name,fecha:new Date().toLocaleString(),camino:camino,dx:n.dx,sug:n.sug};persist();
+  toast('📄 '+PROTO_LABEL[PW.proto]+' agregado al informe');}
+function protoReportData(){var R=S.__protoReports||{};return Object.keys(R).map(function(k){return R[k];});}
+window.protoShow=protoShow;window.protoAnswer=protoAnswer;window.protoBack=protoBack;window.protoRestart=protoRestart;window.protoInclude=protoInclude;
+TAB.protocolos=function(){protoReset('rush');return '<div id="protoWrap">'+protoWrapHTML()+'</div>';};
+
+/* ═══ Traqueostomía percutánea eco-guiada (Ciaglia Blue Rhino) — subsección de Procedimientos ═══ */
+var TRQ_CHECK=[
+ 'FiO₂ 100%, SpO₂ estable','Sedoanalgesia y relajación neuromuscular','Hiperextensión cervical (rollo bajo hombros)','Campo estéril completo','Kit Ciaglia Blue Rhino disponible','Guía ecográfica o broncoscopio preparado','Cánula del número correcto lista',
+ 'Incisión piel 1-1.5 cm sobre 2°-3° anillo traqueal','Disección roma pretraqueal hasta tráquea','US en tiempo real: transductor transversal sobre tráquea','Aguja 14G en línea media entre 2°-3° anillos','Aspirar aire → confirmar posición intratraqueal','Guía metálica bajo visión ecográfica','Confirmar guía en luz traqueal (no pared posterior)',
+ 'Dilatador inicial (azul) sobre guía','Dilatador Blue Rhino hidrofílico (mojado en suero)','Dilatación única con giro suave — US confirma en eje T','Sin fuerza excesiva',
+ 'Cánula sobre dilatador + guía','Retirar dilatador y guía','Inflar balón','Conectar a ventilador','Confirmar: lung sliding bilateral + capnografía'
+];
+if(typeof PROC!=='undefined'){PROC.traqueo={t:'Traqueostomía percutánea eco-guiada (Ciaglia Blue Rhino)',sel:null,pasos:[],check:TRQ_CHECK,
+  reg:[['trq_tiroides','Tiroides','seg'],['trq_vasos','Vasos pretraqueales','seg'],['trq_traquea','Tráquea','seg'],['trq_anillos','Anillos 2°-3°','seg'],['trq_dist','Distancia piel-tráquea (mm)','number'],['trq_sliding_post','Lung sliding post','seg'],['trq_canula','Cánula en luz','seg']]};}
+function trqAlertsHTML(){
+  var a=[];
+  if(S.trq_tiroides==='Istmo interpuesto')a.push(['red','🔴 Istmo tiroideo interpuesto en la línea de punción — reconsiderar sitio / abordaje.']);
+  if(S.trq_vasos==='Vaso identificado')a.push(['yellow','🟡 Vaso pretraqueal identificado — riesgo de sangrado, ajustar trayecto.']);
+  if(S.trq_traquea==='Desviada')a.push(['yellow','🟡 Tráquea desviada de la línea media — precaución en la punción.']);
+  if(S.trq_anillos==='Difícil identificación')a.push(['yellow','🟡 Difícil identificación de anillos 2°-3° — optimizar ventana / plano.']);
+  var d=num(S.trq_dist);if(d!=null&&d>15)a.push(['yellow','🟡 Distancia piel-tráquea >15 mm — cuello grueso, precaución.']);
+  if(S.trq_sliding_post==='Ausente')a.push(['red','🔴 Lung sliding ausente post-procedimiento — sospechar neumotórax.']);
+  if(S.trq_canula==='No visible')a.push(['red','🔴 Cánula no visible en la luz — verificar posición.']);
+  if(!a.length)return '<div class="hint">Sin alertas — completá la evaluación ecográfica.</div>';
+  return a.map(function(x){var c=x[0]==='red'?'#e11d2b':'#c78100';return '<div style="padding:8px 11px;border-radius:8px;margin-bottom:6px;font-size:12px;color:'+c+';background:'+(x[0]==='red'?'rgba(225,29,43,.08)':'rgba(199,129,0,.08)')+';border:1px solid '+c+'44">'+escHtml(x[1])+'</div>';}).join('');
+}
+function trqRecompute(){var el=$('trq_alerts');if(el)el.innerHTML=trqAlertsHTML();}
+function traqueoHTML(){
+  var contra=['Anatomía anormal del cuello','Istmo tiroideo grande en la línea de punción','Coagulopatía severa no corregida','Vía aérea difícil no asegurada'];
+  var h='';
+  h+='<div class="subhead">Indicaciones</div><ul style="margin:0 0 8px 18px;font-size:12.5px;line-height:1.6"><li>ARM prolongada (&gt;7-10 días)</li><li>Manejo difícil de secreciones</li><li>Obstrucción de VA o alto riesgo de pérdida de VA</li></ul>';
+  h+='<div class="subhead">Contraindicaciones absolutas</div><div style="border:1px solid #e11d2b55;background:rgba(225,29,43,.06);border-radius:9px;padding:10px 12px"><ul style="margin:0 0 0 18px;font-size:12.5px;line-height:1.6;color:#e11d2b">'+contra.map(function(c){return '<li>'+escHtml(c)+'</li>';}).join('')+'</ul></div>';
+  h+='<div class="subhead">Evaluación ecográfica previa (obligatoria)</div><div class="hint" style="margin-bottom:8px">Transductor lineal 7-10 MHz, cortes transversal (T) y longitudinal (L) del cuello.</div>';
+  h+='<div class="grid2">'+
+    segf('trq_tiroides','Tiroides',['No interpuesto','Istmo interpuesto'])+
+    segf('trq_vasos','Vasos pretraqueales',['Sin vasos','Vaso identificado'])+
+    segf('trq_traquea','Tráquea',['Línea media','Desviada'])+
+    segf('trq_anillos','Anillos 2°-3°',['Identificados','Difícil identificación'])+
+    inp('trq_dist','Distancia piel-tráquea (mm)','','number')+'</div>';
+  h+='<div id="trq_alerts" style="margin-top:10px"></div>';
+  var phases=[['Fase pre-procedimiento',0,7],['Fase punción',7,14],['Fase dilatación',14,18],['Fase colocación',18,23]];
+  h+='<div class="subhead">Checklist</div>';
+  phases.forEach(function(ph){h+='<div style="font-size:11.5px;font-weight:700;color:var(--teal3);margin:8px 0 4px">'+ph[0]+'</div><div style="display:flex;flex-direction:column;gap:6px">';
+    for(var i=ph[1];i<ph[2];i++){var k='chk_traqueo_'+i;h+='<label style="display:flex;gap:8px;align-items:center;font-size:12.5px"><input type="checkbox" data-k="'+k+'" onchange="setK(\''+k+'\',this.checked?\'1\':\'\')" '+(S[k]?'checked':'')+'> '+escHtml(TRQ_CHECK[i])+'</label>';}
+    h+='</div>';});
+  h+='<div class="subhead">Control post-procedimiento</div><div class="grid2">'+
+    segf('trq_sliding_post','Lung sliding bilateral post',['Presente','Ausente'])+
+    segf('trq_canula','Cánula en luz',['Confirmada','No visible'])+'</div>';
+  h+='<div class="hint" style="margin-top:12px">Ventajas del US: identifica vasos y tiroides (↓ sangrado 70-80%), confirma punción en línea media, guía en tiempo real, alternativa al broncoscopio, ↓ aerosoles. Estenosis traqueal post-TQT: 1.1-1.6%.</div>';
+  return card('🫁 Traqueostomía percutánea eco-guiada (Ciaglia Blue Rhino)',h);
+}
+TAB.procedimientos=function(){
+  return card('🔬 Procedimientos eco-guiados',
+    '<div class="seg" style="margin-bottom:12px;flex-wrap:wrap"><button data-v="vvc" onclick="procSel(this,\'vvc\')" class="on">Vía central</button><button data-v="traqueo" onclick="procSel(this,\'traqueo\')">Traqueostomía</button><button data-v="para" onclick="procSel(this,\'para\')">Paracentesis</button><button data-v="toraco" onclick="procSel(this,\'toraco\')">Toracocentesis</button><button data-v="artro" onclick="procSel(this,\'artro\')">Artrocentesis</button></div>'+
+    '<div id="procBody"></div>');
+};
+(function(){var _o=renderProc;renderProc=function(){if(curProc==='traqueo'){var pb=$('procBody');if(pb){pb.innerHTML=traqueoHTML();restoreVals(pb);trqRecompute();}return;}_o.apply(this,arguments);};})();
+(function(){var _o=recompute;recompute=function(){_o.apply(this,arguments);try{trqRecompute();}catch(e){}};})();
+function procReportData(){
+  if(typeof PROC==='undefined')return [];
+  var order=['vvc','traqueo','para','toraco','artro'],out=[];
+  order.forEach(function(k){var p=PROC[k];if(!p)return;
+    var hasSel=S['proc_'+k+'_sitio'];
+    var hasReg=(p.reg||[]).some(function(r){return S[r[0]]!=null&&S[r[0]]!=='';});
+    var checkTotal=(p.check||[]).length,checkDone=0;for(var i=0;i<checkTotal;i++){if(S['chk_'+k+'_'+i]==='1')checkDone++;}
+    if(hasSel||hasReg||checkDone>0){var campos=[];if(hasSel)campos.push(['Acceso / sitio',S['proc_'+k+'_sitio']]);(p.reg||[]).forEach(function(r){var v=S[r[0]];if(v!=null&&v!=='')campos.push([r[1],v]);});out.push({name:p.t,campos:campos,checkDone:checkDone,checkTotal:checkTotal});}
+  });
+  return out;
+}
 </script>
 </body>
 </html>
