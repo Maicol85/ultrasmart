@@ -356,11 +356,13 @@ var NAV=[
   ['paciente','👤','Paciente'],
   ['cardiaco','🫀','Cardíaco POCUS'],
   ['pulmonar','🫁','Pulmonar'],
-  ['abdominal','🏥','Abdominal / FAST'],
   ['vascular','🩸','Vascular'],
-  ['ocular','👁️','Ocular'],
+  ['abdominal','🏥','Abdominal / FAST'],
+  ['weaning','🌬️','Weaning'],
+  ['neuro','🧠','Neuro'],
+  ['hemodinamia','💧','Hemodinámica'],
+  ['protocolos','📋','Protocolos'],
   ['procedimientos','🔬','Procedimientos'],
-  ['avanzado','📈','Avanzado Plus'],
   ['academico','📚','Académico'],
   ['config','⚙️','Configuración']
 ];
@@ -380,7 +382,7 @@ window.topTab=topTab;
 
 /* Toggle "Incluir <tab> en el informe PDF" — se persiste en S['incl-<tab>'] para
    sobrevivir el re-render al cambiar de tab; generarPDF() lo lee para ser selectivo. */
-var INCL_TABS={paciente:'Paciente',cardiaco:'Cardíaco POCUS',pulmonar:'Pulmonar',abdominal:'Abdominal / FAST',vascular:'Vascular',ocular:'Ocular',procedimientos:'Procedimientos',avanzado:'Avanzado Plus',academico:'Académico'};
+var INCL_TABS={paciente:'Paciente',cardiaco:'Cardíaco POCUS',pulmonar:'Pulmonar',vascular:'Vascular',abdominal:'Abdominal / FAST',weaning:'Weaning',neuro:'Neuro',procedimientos:'Procedimientos',academico:'Académico'};
 function inclToggle(t){
   if(!INCL_TABS[t])return '';
   var on=(S['incl-'+t]==='1');
@@ -437,6 +439,7 @@ TAB.cardiaco=function(){
     '<div class="subhead">Respuesta a fluidos (ΔVTI)</div><div class="grid3">'+inp('c_vti_esp','VTI espiración (cm)','','number')+inp('c_vti_insp','VTI inspiración (cm)','','number')+'<div><label class="fl">ΔVTI</label><div class="in" id="c_dvti" style="background:var(--bg2)">—</div></div></div>'+
     '<div class="subhead">Función VD e HTP</div><div class="grid4">'+inp('c_tapse','TAPSE (mm)','','number')+inp('c_sp','S\' lateral (cm/s)','','number')+inp('c_fac','FAC (%)','','number')+inp('c_vit','Vmax IT (m/s)','','number')+'</div>'+
     '<div class="grid3" style="margin-top:8px">'+inp('c_pad','PAD estimada (mmHg)','','number')+'<div><label class="fl">PSAP estimada</label><div class="in" id="c_psap" style="background:var(--bg2)">—</div></div>'+inp('c_ee','E/e\' promedio','','number')+'</div>'+
+    '<div class="subhead">Función diastólica (VI) — se comparte con Weaning</div><div class="grid4">'+inp('c_ea','Relación E/A','','number')+inp('c_ee_sep','E/e\' septal','','number')+inp('c_ee_lat','E/e\' lateral','','number')+inp('c_tda','TDA onda E (ms)','','number')+'</div>'+
     '</div></div>';
   return card('🫀 Cardíaco POCUS — Modo básico',basic)+adv;
 };
@@ -990,8 +993,27 @@ function buildConclusiones(){
   if(anyPu){var pc=$('pu_concl');lines.push(['Pulmonar',pc?pc.textContent:'evaluado']);}
   if(S.ab_morrison||S.ab_espleno||S.ab_douglas||S.ab_peri){var ac=$('ab_concl');lines.push(['Abdominal/FAST',ac?ac.textContent:'evaluado']);}
   if(S.va_fc||S.va_fs||S.va_pop||S.va_tib){var vc=$('va_concl');lines.push(['Vascular',vc?vc.textContent:'evaluado']);}
-  if(S.oc_od||S.oc_oi){var oi=$('oc_int');lines.push(['Ocular','DVNO '+(oi?oi.textContent:'')]);}
-  if(S.dtc_vm){var dc=$('dtc_concl');lines.push(['DTC',dc?dc.textContent:'evaluado']);}
+  if(S.nr_dvno_od||S.nr_dvno_oi||S.nr_ip_d||S.nr_ip_i||S.nr_lm_a||S.nr_pup_vel||S.nr_pup_refl){
+    var np=[],nmx=Math.max(num(S.nr_dvno_od)||0,num(S.nr_dvno_oi)||0),nipmx=Math.max(num(S.nr_ip_d)||0,num(S.nr_ip_i)||0),na=num(S.nr_lm_a),nb=num(S.nr_lm_b);
+    if(nmx>0)np.push('DVNO '+fmt(nmx,1)+' mm'+(nmx>5.6?' (HIC probable)':nmx>=5?' (limítrofe)':''));
+    if(nipmx>0)np.push('IP ACM '+fmt(nipmx,2)+(nipmx>1.1?' (resistencia elevada)':''));
+    if(na!=null&&nb!=null)np.push('desvío LM '+fmt((na-nb)/2,1)+' mm'+(Math.abs((na-nb)/2)>4?' (significativo)':''));
+    if(S.nr_pup_refl)np.push('pupila '+S.nr_pup_refl.toLowerCase()+(S.nr_pup_refl==='Ausente'?' (compromiso de tronco)':num(S.nr_pup_vel)!=null&&num(S.nr_pup_vel)<0.09?', vel '+fmt(num(S.nr_pup_vel),2)+' cm/s enlentecida':''));
+    lines.push(['Neuro',np.length?np.join(' · '):'evaluado']);
+  }
+  var wnActive=(S.wn_f||S.wn_vt||S.wn_dexc||S.wn_dtei||S.wn_dtii||S.wn_diaf_pres||S.wn_pleu_tam||S.wn_pleu_func||S.wn_pleu_vol||S.wn_integ_incl||(typeof WN_LUS!=='undefined'&&WN_LUS.some(function(r){return S[r[0]]!=null&&S[r[0]]!=='';})));
+  if(wnActive&&typeof wnDomains==='function'){
+    var wd=wnDomains(),wpp=[],wlab={red:'riesgo',yellow:'indeterminado',green:'favorable'};
+    if(wd.rsbiVal!=null)wpp.push('RSBI '+fmt(wd.rsbiVal,0)+(wd.rsbiVal>105?' (alto riesgo)':' (favorable)'));
+    if(wd.card.color)wpp.push('cardíaco '+wlab[wd.card.color]+(wd.card.summary?' ['+wd.card.summary+']':''));
+    if(wd.diaf.color)wpp.push('diafragma '+wlab[wd.diaf.color]+(wd.diaf.summary?' ['+wd.diaf.summary+']':''));
+    if(wd.lus.color)wpp.push('LUS '+wlab[wd.lus.color]+' (score '+wd.lus.score+'/36)');
+    if(wd.pleu.color)wpp.push('pleural '+wlab[wd.pleu.color]+(wd.pleu.summary?' ['+wd.pleu.summary+']':''));
+    var wtxt=wpp.join(' · ');
+    if(wd.integ.verdict)wtxt+=(wtxt?' — ':'')+'Semáforo pre-VE: riesgo '+wd.integ.verdict;
+    if(S.wn_integ_incl==='1')wtxt+='. '+wnParrafo(wd);
+    lines.push(['Weaning',wtxt||'evaluado']);
+  }
   return lines;
 }
 function abrirInforme(){
@@ -1038,7 +1060,7 @@ function generarPDF(){
   // Selectividad por tab: si hay checkboxes "Incluir … en el informe PDF" marcados,
   // el informe incluye SOLO los módulos de los tabs seleccionados. Si no hay ninguno
   // marcado, se incluye todo (comportamiento del botón global, sin cambios).
-  var INCL_MAP={'Cardíaco':'cardiaco','Pulmonar':'pulmonar','Abdominal/FAST':'abdominal','Vascular':'vascular','Ocular':'ocular','DTC':'avanzado'};
+  var INCL_MAP={'Cardíaco':'cardiaco','Pulmonar':'pulmonar','Abdominal/FAST':'abdominal','Vascular':'vascular','Neuro':'neuro','Weaning':'weaning'};
   var anyIncl=Object.keys(INCL_TABS).some(function(t){return S['incl-'+t]==='1';});
   if(anyIncl){lines=lines.filter(function(l){var t=INCL_MAP[l[0]];if(!t||!INCL_TABS[t])return true;return S['incl-'+t]==='1';});}
   doc.setFontSize(9.5);
@@ -1221,11 +1243,7 @@ window.updateStorageInfo=updateStorageInfo;
    2) Protocolos: 7 wizards interactivos (RUSH · FALLS · BLUE · FAST/eFAST ·
       CAUSE · SESAME · HIMAP)
    ═══════════════════════════════════════════════════════════════════════ */
-(function(){
-  function insAfter(id,e){for(var i=0;i<NAV.length;i++){if(NAV[i][0]===id){NAV.splice(i+1,0,e);return;}}}
-  insAfter('cardiaco',['hemodinamia','💧','Hemodinámica']);
-  insAfter('procedimientos',['protocolos','📋','Protocolos']);
-})();
+/* NAV ya define el orden final (Hemodinámica, Protocolos, Neuro, Weaning) — sin splices. */
 
 /* ───────── Cálculos hemodinámicos (compartidos por UI y PDF) ───────── */
 function hdGC(){var d=num(S.hd_dtsvi),vti=num(S.hd_vti),fc=num(S.hd_fc);var area=(d!=null)?0.785*Math.pow(d/10,2):null;var vs=(area!=null&&vti!=null)?area*vti:null;var gc=(vs!=null&&fc!=null)?vs*fc/1000:null;return {area:area,vs:vs,gc:gc};}
@@ -1257,6 +1275,7 @@ function hdReportData(){
   var f=[];[['hd_contract','Contractilidad'],['hd_vci','VCI'],['hd_lineasb','Líneas B'],['hd_vd','VD'],['hd_fast','FAST'],['hd_peri','Pericardio'],['hd_tvp','TVP'],['hd_sliding','Lung sliding']].forEach(function(p){if(S[p[0]])f.push(p[1]+': '+S[p[0]]);});
   if(f.length)out.push(['Hallazgos',f.join(' · ')]);
   var dx=hdDiagnose();if(dx){out.push(['Diagnóstico sugerido',dx.dx]);out.push(['Razonamiento',dx.reason]);out.push(['Manejo orientativo',dx.sug]);}
+  if(S.h_dtsvi||S.h_vti||S.h_fc||S.h_pam){var hg=num(S.h_dtsvi),hv=num(S.h_vti),hf=num(S.h_fc),hpam=num(S.h_pam),hpvc=num(S.h_pvc),hsc=num(S.h_sc);var hvs=(hg&&hv)?0.785*hg*hg*hv:null,hgc=(hvs!=null&&hf)?hvs*hf/1000:null,hic=(hgc!=null&&hsc)?hgc/hsc:null,hrvs=(hgc!=null&&hpam!=null&&hpvc!=null)?((hpam-hpvc)*80/hgc):null;var parts=[];if(hvs!=null)parts.push('VS '+fmt(hvs,1)+' ml');if(hgc!=null)parts.push('GC '+fmt(hgc,2)+' L/min');if(hic!=null)parts.push('IC '+fmt(hic,2));if(hrvs!=null)parts.push('RVS '+fmt(hrvs,0));if(parts.length)out.push(['Hemodinámico completo',parts.join(' · ')]);}
   return out;
 }
 /* Actualización en tiempo real */
@@ -1312,7 +1331,13 @@ TAB.hemodinamia=function(){
   var pdf='<div style="margin-top:20px;padding:12px 14px;background:var(--head);border:1px dashed var(--border);border-radius:9px;display:flex;align-items:center;gap:10px">'+
     '<input type="checkbox" id="incl-hemodinamia"'+(S['incl-hemodinamia']==='1'?' checked':'')+' onchange="setK(\'incl-hemodinamia\',this.checked?\'1\':\'\')" style="width:16px;height:16px;accent-color:var(--teal)">'+
     '<label for="incl-hemodinamia" style="font-size:12.5px;color:var(--text2);cursor:pointer">Incluir <b style="color:var(--text)">Valoración Hemodinámica</b> en el informe PDF</label></div>';
-  return s1+s2+s3+s4+pdf;
+  var s5=card('💉 Hemodinámico completo',
+    '<div class="grid4">'+inp('h_dtsvi','Diámetro TSVI (cm)','','number')+inp('h_vti','VTI (cm)','','number')+inp('h_fc','FC (lpm)','','number')+inp('h_pam','PAM (mmHg)','','number')+'</div>'+
+    '<div class="grid3" style="margin-top:8px">'+inp('h_sc','Sup. corporal (m²)','','number')+inp('h_pvc','PVC (mmHg)','','number')+inp('h_pad','PAD (mmHg)','','number')+'</div>'+
+    '<div class="grid4" style="margin-top:10px"><div><label class="fl">VS</label><div class="in" id="h_vs" style="background:var(--bg2)">—</div></div><div><label class="fl">GC</label><div class="in" id="h_gc" style="background:var(--bg2)">—</div></div><div><label class="fl">IC</label><div class="in" id="h_ic" style="background:var(--bg2)">—</div></div><div><label class="fl">RVS</label><div class="in" id="h_rvs" style="background:var(--bg2)">—</div></div></div>'+
+    '<div class="subhead">Predicción respuesta a fluidos</div><div class="grid3">'+inp('h_vti_esp','VTI esp (cm)','','number')+inp('h_vti_insp','VTI insp (cm)','','number')+'<div><label class="fl">ΔVTI</label><div class="in" id="h_dvti" style="background:var(--bg2)">—</div></div></div>'+
+    '<div class="concl" id="h_concl" style="margin-top:12px"></div>');
+  return s1+s2+s3+s4+s5+pdf;
 };
 
 /* ───────── TAB Protocolos — wizards ───────── */
@@ -1525,6 +1550,175 @@ function procReportData(){
   });
   return out;
 }
+
+/* ═══ TAB Neuro (DVNO + DTC + Pupilometría) y TAB Weaning — cálculos y alertas ═══ */
+function setH(id,h){var e=$(id);if(e)e.innerHTML=h;}
+TAB.neuro=function(){
+  var dvno=card('👁️ DVNO — Vaina del nervio óptico',
+    '<div class="hint" style="margin-bottom:8px">Medir la vaina 3 mm por detrás de la retina, perpendicular al nervio. Corte 5.6 mm (S90% E85%) para hipertensión intracraneana.</div>'+
+    '<div class="grid2">'+inp('nr_dvno_od','DVNO ojo derecho (mm)','','number')+inp('nr_dvno_oi','DVNO ojo izquierdo (mm)','','number')+'</div>'+
+    '<div class="concl" id="nr_dvno_int" style="margin-top:12px"></div>');
+  var dtc=card('🧠 DTC / EcoDTC — ACM bilateral',
+    '<div class="grid2">'+inp('nr_ip_d','IP ACM derecha','','number')+inp('nr_ip_i','IP ACM izquierda','','number')+'</div>'+
+    '<div class="concl" id="nr_ip_int" style="margin-top:10px"></div>'+
+    '<div class="subhead">Desvío de línea media</div><div class="grid3">'+inp('nr_lm_a','Distancia A — 3° ventrículo → tabla D (mm)','','number')+inp('nr_lm_b','Distancia B — 3° ventrículo → tabla I (mm)','','number')+'<div><label class="fl">Desvío = (A−B)/2</label><div class="in" id="nr_lm_calc" style="background:var(--bg2)">—</div></div></div>'+
+    '<div class="concl" id="nr_lm_int" style="margin-top:10px"></div>');
+  var pup=card('🔦 Pupilometría ecográfica',
+    '<div class="grid2">'+segf('nr_pup_refl','Reflejo fotomotor',['Presente','Ausente'])+inp('nr_pup_vel','Velocidad de contracción (cm/s)','','number')+'</div>'+
+    '<div class="concl" id="nr_pup_int" style="margin-top:12px"></div>');
+  return dvno+dtc+pup+'<div class="concl" id="nr_concl" style="display:none"></div>';
+};
+/* ── ESTADO COMPARTIDO GLOBAL ──────────────────────────────────────────
+   'S' ya es el único objeto de estado de la app (persistido una sola vez).
+   patientState es un alias explícito de ese objeto: los campos se propagan
+   entre tabs por KEY COMPARTIDA (mismos c_* en Cardíaco y Weaning → sync
+   bidireccional real vía setK) y, cuando cambia la granularidad (LUS,
+   derrame), por SEEDING no destructivo (solo rellena si el destino está
+   vacío). No se duplica storage: todo vive dentro de S. */
+var patientState=S; window.patientState=patientState;
+/* Grillas LUS de Weaning: 12 regiones (6 por hemitórax). */
+var WN_LUS=[
+  ['wn_lus_ras','Ant. sup. D'],['wn_lus_rai','Ant. inf. D'],['wn_lus_rls','Lat. sup. D'],
+  ['wn_lus_rli','Lat. inf. D'],['wn_lus_rps','Post. sup. D'],['wn_lus_rpi','Post. inf. D'],
+  ['wn_lus_las','Ant. sup. I'],['wn_lus_lai','Ant. inf. I'],['wn_lus_lls','Lat. sup. I'],
+  ['wn_lus_lli','Lat. inf. I'],['wn_lus_lps','Post. sup. I'],['wn_lus_lpi','Post. inf. I']
+];
+/* Pre-carga no destructiva desde las tabs de origen hacia Weaning. */
+function seedWeaning(){
+  /* Pulmonar (6 zonas cualitativas) → LUS 12 regiones (0-3). Derrame → no aplica. */
+  var lmap={pu_asd:'wn_lus_ras',pu_aid:'wn_lus_rai',pu_pld:'wn_lus_rpi',pu_asi:'wn_lus_las',pu_aii:'wn_lus_lai',pu_pli:'wn_lus_lpi'};
+  var ltr={'Normal (A)':'0','Líneas B':'1','Consolidación':'3'};
+  Object.keys(lmap).forEach(function(src){var d=lmap[src];if((S[d]==null||S[d]==='')&&S[src]&&ltr[S[src]]!=null)S[d]=ltr[S[src]];});
+  /* Pulmonar derrame magnitud (Pequeño/Moderado/Grande) → tamaño pleural (…/Severo). */
+  if((S.wn_pleu_tam==null||S.wn_pleu_tam==='')&&S.pu_derr_mag){var pm={'Pequeño':'Pequeño','Moderado':'Moderado','Grande':'Severo'}[S.pu_derr_mag];if(pm)S.wn_pleu_tam=pm;}
+}
+TAB.weaning=function(){
+  seedWeaning();
+  var rsbi=card('🌬️ RSBI — Índice de respiración rápida superficial',
+    '<div class="grid3">'+inp('wn_f','Frecuencia (resp/min)','','number')+inp('wn_vt','Volumen tidal (ml)','','number')+'<div><label class="fl">RSBI = f / VT</label><div class="in" id="wn_rsbi" style="background:var(--bg2)">—</div></div></div>'+
+    '<div class="concl" id="wn_rsbi_int" style="margin-top:10px"></div>');
+  var cardg=card('🫀 Función cardíaca — pre-VE (se comparte con Cardíaco POCUS)',
+    '<div class="hint" style="margin-bottom:8px">Pre-cargado desde Cardíaco; editable. FEVI, E/A, E/e\' y TDA se sincronizan con la tab Cardíaco.</div>'+
+    '<div class="grid3">'+segf('c_fevi','FEVI visual',['Normal','Reducida leve','Moderada','Severa'])+inp('c_ea','Relación E/A','','number')+inp('c_tda','TDA onda E (ms)','','number')+'</div>'+
+    '<div class="grid4" style="margin-top:8px">'+inp('c_ee_sep','E/e\' septal','','number')+inp('c_ee_lat','E/e\' lateral','','number')+inp('c_ee','E/e\' promedio','','number')+inp('c_tapse','TAPSE (mm)','','number')+'</div>'+
+    '<div class="concl" id="wn_card_int" style="margin-top:12px"></div>');
+  var diaf=card('🫁 Función diafragmática',
+    '<div class="grid3">'+inp('wn_dexc','Excursión (cm)','','number')+segf('wn_diaf_pres','Movimiento',['Presente','Ausente/paradójico'])+'<div></div></div>'+
+    '<div class="subhead">Índice de actividad diafragmática (IAD)</div><div class="grid3">'+inp('wn_dtii','Espesor inspiración EI (mm)','','number')+inp('wn_dtei','Espesor espiración EE (mm)','','number')+'<div><label class="fl">IAD = (EI−EE)/EE ×100</label><div class="in" id="wn_iad" style="background:var(--bg2)">—</div></div></div>'+
+    '<div class="concl" id="wn_diaf_int" style="margin-top:10px"></div>');
+  var lusHtml=WN_LUS.map(function(r){return segf(r[0],r[1],['0','1','2','3']);}).join('');
+  var lus=card('🌊 Score LUS — 12 regiones (pre-cargado desde Pulmonar)',
+    '<div class="hint" style="margin-bottom:8px">0 = normal/líneas A · 1 = intersticial · 2 = alveolar · 3 = consolidación.</div>'+
+    '<div class="grid3">'+lusHtml+'</div>'+
+    '<div class="grid2" style="margin-top:10px"><div><label class="fl">Score total (0–36)</label><div class="in" id="wn_lus_score" style="background:var(--bg2)">—</div></div></div>'+
+    '<div class="concl" id="wn_lus_int" style="margin-top:10px"></div>');
+  var pleu=card('💧 Derrame pleural — decisión de drenaje',
+    '<div class="grid3">'+segf('wn_pleu_tam','Tamaño',['Pequeño','Moderado','Severo'])+segf('wn_pleu_func','Función cardíaca',['Normal','Disfunción diastólica','EPOC','Miopático'])+inp('wn_pleu_vol','Volumen estimado a drenar (ml)','','number')+'</div>'+
+    '<div class="concl" id="wn_pleu_int" style="margin-top:10px"></div>');
+  var integ=card('🚦 Semáforo integrador pre-VE',
+    '<div class="hint" style="margin-bottom:8px">Cruza los 4 dominios: cardíaco · diafragmático · LUS · pleural.</div>'+
+    '<div class="in" id="wn_integ" style="background:var(--bg2);font-weight:700;font-size:15px">—</div>'+
+    '<div class="concl" id="wn_integ_int" style="margin-top:10px"></div>'+
+    '<div style="margin-top:12px;padding:10px 12px;background:var(--head);border:1px dashed var(--border);border-radius:9px;display:flex;align-items:center;gap:10px">'+
+    '<input type="checkbox" id="wn_integ_incl"'+(S.wn_integ_incl==='1'?' checked':'')+' onchange="setK(\'wn_integ_incl\',this.checked?\'1\':\'\')" style="width:16px;height:16px;accent-color:var(--teal)">'+
+    '<label for="wn_integ_incl" style="font-size:12.5px;color:var(--text2);cursor:pointer">Incluir <b style="color:var(--text)">párrafo clínico interpretado</b> del semáforo en el informe</label></div>');
+  return rsbi+cardg+diaf+lus+pleu+integ+'<div class="concl" id="wn_concl" style="display:none"></div>';
+};
+function nwRecompute(){
+  if(!$('nr_dvno_int')&&!$('wn_rsbi'))return;
+  /* ── NEURO ── */
+  if($('nr_dvno_int')){
+    var od=num(S.nr_dvno_od),oi=num(S.nr_dvno_oi),mx=Math.max(od||0,oi||0);
+    setH('nr_dvno_int', mx<=0?'Ingrese la medición de la vaina.':(mx>5.6?'🔴 DVNO '+fmt(mx,1)+' mm (&gt;5.6) — hipertensión intracraneana probable (S90% E85%).':mx>=5?'🟡 DVNO '+fmt(mx,1)+' mm (5–5.6) — limítrofe, correlacionar clínica.':'✅ DVNO '+fmt(mx,1)+' mm (&lt;5) — normal.'));
+    var ipd=num(S.nr_ip_d),ipi=num(S.nr_ip_i),ipmx=Math.max(ipd||0,ipi||0);
+    setH('nr_ip_int', ipmx<=0?'Ingrese el índice de pulsatilidad (IP) de la ACM.':(ipmx>1.1?'🔴 IP ACM '+fmt(ipmx,2)+' (&gt;1.1) — resistencia elevada, sugiere hipertensión intracraneana.':'✅ IP ACM '+fmt(ipmx,2)+' (≤1.1) — dentro de lo normal.'));
+    var a=num(S.nr_lm_a),b=num(S.nr_lm_b);
+    if(a!=null&&b!=null){var sh=(a-b)/2;setTxt('nr_lm_calc',fmt(sh,1)+' mm');setH('nr_lm_int',Math.abs(sh)>4?'🔴 Desvío de línea media '+fmt(sh,1)+' mm (&gt;4) — significativo, correlacionar con TC.':'✅ Desvío '+fmt(sh,1)+' mm (≤4) — no significativo.');}
+    else{setTxt('nr_lm_calc','—');setH('nr_lm_int','');}
+    var refl=S.nr_pup_refl,vel=num(S.nr_pup_vel);
+    setH('nr_pup_int', refl==='Ausente'?'🔴 Reflejo fotomotor ausente — sospechar compromiso del tronco / herniación.':(refl==='Presente'?(vel!=null?(vel<0.09?'🟡 Reflejo presente, velocidad '+fmt(vel,2)+' cm/s (&lt;0.09) — enlentecida.':'✅ Reflejo presente, velocidad '+fmt(vel,2)+' cm/s (≥0.09) — normal.'):'Reflejo presente — ingrese la velocidad de contracción.'):'Registre el reflejo fotomotor y la velocidad de contracción.'));
+    if($('nr_concl')){var p=[];if(mx>0)p.push('DVNO '+fmt(mx,1)+' mm');if(ipmx>0)p.push('IP ACM '+fmt(ipmx,2));if(a!=null&&b!=null)p.push('desvío LM '+fmt((a-b)/2,1)+' mm');if(refl)p.push('pupila '+refl.toLowerCase());setTxt('nr_concl',p.join(' · '));}
+  }
+  /* ── WEANING ── */
+  if($('wn_rsbi')){
+    var d=wnDomains();
+    /* RSBI */
+    if(d.rsbiVal!=null){setTxt('wn_rsbi',fmt(d.rsbiVal,0));setH('wn_rsbi_int',d.rsbiVal>105?'🔴 RSBI '+fmt(d.rsbiVal,0)+' (&gt;105) — alto riesgo de fallo de extubación.':'✅ RSBI '+fmt(d.rsbiVal,0)+' (≤105) — favorable para el weaning.');}
+    else{setTxt('wn_rsbi','—');setH('wn_rsbi_int','');}
+    /* Cardíaco */
+    setH('wn_card_int', d.card.color?(d.card.msgs.length?d.card.msgs.join('<br>'):'✅ Sin criterios de disfunción diastólica de riesgo.'):'Ingrese parámetros cardíacos (se comparten con Cardíaco POCUS).');
+    /* Diafragma */
+    setTxt('wn_iad', d.diaf.iad!=null?fmt(d.diaf.iad,0)+'%':'—');
+    setH('wn_diaf_int', d.diaf.color?d.diaf.msgs.join('<br>'):'Ingrese excursión y espesores diafragmáticos.');
+    /* LUS */
+    setTxt('wn_lus_score', d.lus.n?d.lus.score+' / 36':'—');
+    setH('wn_lus_int', d.lus.n?(d.lus.score<13?'✅ Score '+d.lus.score+' (&lt;13) — bajo riesgo, éxito (Soummer et al.).':d.lus.score<=17?'🟡 Score '+d.lus.score+' (13–17) — indeterminado.':'🔴 Score '+d.lus.score+' (&gt;17) — falla, VPP 85% de distress post-extubación.'):'Puntúe las regiones (se pre-cargan desde Pulmonar si hay datos).');
+    /* Pleural */
+    setH('wn_pleu_int', d.pleu.color?d.pleu.msgs.join('<br>'):'Seleccione tamaño y función cardíaca.');
+    /* Integrador */
+    var v=d.integ.verdict,vc=v==='ALTO'?'🔴':v==='MODERADO'?'🟡':'🟢';
+    setTxt('wn_integ', v?(vc+' RIESGO '+v+' para extubación'):'—');
+    setH('wn_integ_int', v?('Dominios evaluados: '+d.integ.nDom+' · 🔴 '+d.integ.reds+' · 🟡 '+d.integ.yels+'.<br>'+escHtml(wnParrafo(d))):'Complete los dominios para obtener el semáforo integrador.');
+    if($('wn_concl'))setTxt('wn_concl', wnParrafo(d));
+  }
+}
+/* Cálculo de dominios de Weaning desde S — usado por nwRecompute (display) y
+   por buildConclusiones (informe). Fuente única de la lógica, calculada desde S. */
+function wnDomains(){
+  seedWeaning();
+  var d={};
+  var f=num(S.wn_f),vt=num(S.wn_vt);d.rsbiVal=(f&&vt&&vt>0)?f/(vt/1000):null;
+  /* CARDÍACO — FEVI derivada del selector cualitativo + diastólica */
+  var fevi=S.c_fevi,feviBaja=(fevi==='Moderada'||fevi==='Severa'),feviNormal=(fevi==='Normal');
+  var ea=num(S.c_ea),esep=num(S.c_ee_sep),elat=num(S.c_ee_lat),tda=num(S.c_tda),tap=num(S.c_tapse),eepr=num(S.c_ee);
+  var cData=!!(fevi||ea!=null||esep!=null||elat!=null||tda!=null||tap!=null||eepr!=null);
+  var cMsg=[],cRed=false,cYel=false;
+  if(ea!=null&&ea>0.95&&esep!=null&&esep>8.5){cRed=true;cMsg.push("🔴 E/A "+fmt(ea,2)+" + E/e' septal "+fmt(esep,1)+" (&gt;8.5) — riesgo alto (Lamia S82% E91%).");}
+  if(esep!=null&&esep>14.5){cRed=true;cMsg.push("🔴 E/e' septal "+fmt(esep,1)+" (&gt;14.5) — presiones de llenado elevadas (Moschietto).");}
+  if(elat!=null&&elat>7.8){cRed=true;cMsg.push("🔴 E/e' lateral "+fmt(elat,1)+" (&gt;7.8) — riesgo (Papanikolaou S86% E79%).");}
+  if(feviBaja){cRed=true;cMsg.push("🔴 FEVI "+String(fevi).toLowerCase()+" (&lt;40%) — alto riesgo de fallo cardiogénico.");}
+  if(feviBaja&&ea!=null&&ea>2){cRed=true;cMsg.push("🔴 FEVI baja + E/A "+fmt(ea,2)+" (&gt;2) — patrón restrictivo (ASE/EACVI).");}
+  if(feviNormal&&((esep!=null&&esep>12)||(elat!=null&&elat>12))){cYel=true;cMsg.push("🟡 FEVI normal + E/e' &gt;12 — riesgo moderado (ASE/EACVI).");}
+  if(tda!=null&&tda<150)cMsg.push("• TDA onda E "+fmt(tda,0)+" ms (&lt;150) — sugiere presiones elevadas.");
+  var cSum=[];if(fevi)cSum.push('FEVI '+String(fevi).toLowerCase());if(ea!=null)cSum.push('E/A '+fmt(ea,2));if(esep!=null)cSum.push("E/e' sep "+fmt(esep,1));if(elat!=null)cSum.push("E/e' lat "+fmt(elat,1));if(tda!=null)cSum.push('TDA '+fmt(tda,0)+' ms');if(tap!=null)cSum.push('TAPSE '+fmt(tap,0)+' mm');
+  d.card={color:cData?(cRed?'red':cYel?'yellow':'green'):null,msgs:cMsg,summary:cSum.join(' · ')};
+  /* DIAFRAGMA — excursión (cm) + IAD */
+  var exc=num(S.wn_dexc),pres=S.wn_diaf_pres,ei=num(S.wn_dtii),eesp=num(S.wn_dtei),iad=(ei&&eesp&&eesp>0)?(ei-eesp)/eesp*100:null;
+  var dData=(exc!=null||iad!=null||!!pres),dMsg=[],dRed=false,dGreen=false;
+  if(pres==='Ausente/paradójico'){dRed=true;dMsg.push('🔴 Movimiento ausente/paradójico — falla.');}
+  if(exc!=null){if(exc<1.1){dRed=true;dMsg.push('🔴 Excursión '+fmt(exc,2)+' cm (&lt;1.1) — falla (Jiang S84% E83%).');}else if(exc>2){dGreen=true;dMsg.push('🟢 Excursión '+fmt(exc,2)+' cm (&gt;2) — éxito.');}else dMsg.push('🟡 Excursión '+fmt(exc,2)+' cm (1.1–2) — indeterminada.');}
+  if(iad!=null){if(iad<30){dRed=true;dMsg.push('🔴 IAD '+fmt(iad,0)+'% (&lt;30) — predice fallo.');}else if(iad>36){dGreen=true;dMsg.push('🟢 IAD '+fmt(iad,0)+'% (&gt;36) — éxito VPP 92% (Ferrari).');}else{dGreen=true;dMsg.push('🟢 IAD '+fmt(iad,0)+'% (&gt;30) — éxito VPP 91% (Di Nino).');}}
+  var dSum=[];if(exc!=null)dSum.push('excursión '+fmt(exc,2)+' cm');if(iad!=null)dSum.push('IAD '+fmt(iad,0)+'%');if(pres)dSum.push('mov. '+String(pres).toLowerCase());
+  d.diaf={color:dData?(dRed?'red':dGreen?'green':'yellow'):null,msgs:dMsg,summary:dSum.join(' · '),iad:iad};
+  /* LUS — score 12 regiones */
+  var sum=0,n=0;WN_LUS.forEach(function(r){var vv=num(S[r[0]]);if(vv!=null){sum+=vv;n++;}});
+  d.lus={color:n?(sum<13?'green':sum<=17?'yellow':'red'):null,score:sum,n:n};
+  /* PLEURAL — tabla de decisión */
+  var tam=S.wn_pleu_tam,func=S.wn_pleu_func,vol=num(S.wn_pleu_vol),pColor=null,pMsg=[];
+  if(tam==='Pequeño'){pColor='green';pMsg.push('✅ Derrame pequeño — sin indicación de drenaje.');}
+  else if(tam==='Moderado'){if(func&&func!=='Normal'){pColor='yellow';pMsg.push('🟢 Derrame moderado + '+String(func).toLowerCase()+' — beneficio del drenaje (riesgo moderado si no se drena).');}else{pColor='green';pMsg.push('✅ Derrame moderado + función normal — sin beneficio esperado del drenaje.');}}
+  else if(tam==='Severo'){pColor='red';pMsg.push('🟢 Derrame severo — drenaje indicado (riesgo alto de fallo si no se evacúa).');}
+  if(vol!=null&&vol>1200)pMsg.push('• Volumen '+fmt(vol,0)+' ml (&gt;1.2 L) — asociado a menos días de ARM (Kupfer).');
+  d.pleu={color:pColor,msgs:pMsg,summary:tam?('derrame '+String(tam).toLowerCase()+(func?' · '+String(func).toLowerCase():'')):''};
+  /* INTEGRADOR — cualquier 🔴 → ALTO; 2+ 🟡 → MODERADO; resto → BAJO */
+  var cols=[d.card.color,d.diaf.color,d.lus.color,d.pleu.color].filter(function(x){return x;});
+  var reds=cols.filter(function(x){return x==='red';}).length,yels=cols.filter(function(x){return x==='yellow';}).length;
+  d.integ={verdict:cols.length?(reds>0?'ALTO':(yels>=2?'MODERADO':'BAJO')):null,reds:reds,yels:yels,nDom:cols.length};
+  return d;
+}
+/* Párrafo clínico interpretado del semáforo pre-VE (texto plano para informe). */
+function wnParrafo(d){
+  var lbl={red:'de riesgo',yellow:'indeterminado',green:'favorable'},parts=[];
+  var strip=function(s){return String(s).replace(/&gt;/g,'>').replace(/&lt;/g,'<');};
+  if(d.card.color)parts.push('cardíaco '+lbl[d.card.color]+(d.card.summary?' ('+strip(d.card.summary)+')':''));
+  if(d.diaf.color)parts.push('diafragmático '+lbl[d.diaf.color]+(d.diaf.summary?' ('+strip(d.diaf.summary)+')':''));
+  if(d.lus.color)parts.push('LUS '+lbl[d.lus.color]+' (score '+d.lus.score+'/36)');
+  if(d.pleu.color)parts.push('pleural '+lbl[d.pleu.color]+(d.pleu.summary?' ('+strip(d.pleu.summary)+')':''));
+  var v=d.integ.verdict;
+  var concl=v==='ALTO'?'Se estima RIESGO ALTO de fallo de extubación; considerar optimización previa a la prueba de ventilación espontánea.':v==='MODERADO'?'Se estima RIESGO MODERADO; correlacionar con la evolución clínica antes de extubar.':v==='BAJO'?'Se estima RIESGO BAJO; perfil favorable para avanzar con la prueba de ventilación espontánea.':'Datos insuficientes para estimar el riesgo integrador.';
+  return (parts.length?('Evaluación pre-VE: '+parts.join('; ')+'. '):'')+concl;
+}
+(function(){var _o=recompute;recompute=function(){_o.apply(this,arguments);try{nwRecompute();}catch(e){}};})();
 </script>
 </body>
 </html>
