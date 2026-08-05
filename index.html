@@ -299,6 +299,8 @@ function escHtml(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){r
 function $(id){return document.getElementById(id);}
 function toast(m){var t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(function(){t.classList.remove('show');},2200);}
 function num(v){var n=parseFloat(String(v).replace(',','.'));return isNaN(n)?null:n;}
+function normNum(v){var n=parseFloat(String(v).replace(',','.'));return isNaN(n)?0:n;}
+window.normNum=normNum;
 
 /* ---- login ---- */
 function togglePass(){var i=$('login-pass'),e=$('eyebtn');if(i.type==='password'){i.type='text';e.textContent='🙈';}else{i.type='password';e.textContent='👁️';}i.focus();}
@@ -344,7 +346,7 @@ function restoreVals(root){
 }
 
 /* html builders */
-function inp(k,label,ph,type){type=type||'text';return '<div><label class="fl">'+label+'</label><input class="in" type="'+type+'" data-k="'+k+'" placeholder="'+(ph||'')+'" oninput="setK(\''+k+'\',this.value)"></div>';}
+function inp(k,label,ph,type){type=type||'text';var ta=(type==='number')?'type="text" inputmode="decimal"':'type="'+type+'"';return '<div><label class="fl">'+label+'</label><input class="in" '+ta+' data-k="'+k+'" placeholder="'+(ph||'')+'" oninput="setK(\''+k+'\',this.value)"></div>';}
 function sel(k,label,opts){var o=opts.map(function(v){return '<option value="'+escHtml(v)+'">'+escHtml(v)+'</option>';}).join('');return '<div><label class="fl">'+label+'</label><select class="in" data-k="'+k+'" onchange="setK(\''+k+'\',this.value)"><option value="">—</option>'+o+'</select></div>';}
 function ta(k,label,ph){return '<div style="grid-column:1/-1"><label class="fl">'+label+'</label><textarea class="in" data-k="'+k+'" placeholder="'+(ph||'')+'" oninput="setK(\''+k+'\',this.value)"></textarea></div>';}
 function segf(k,label,opts){var b=opts.map(function(v){return '<button data-v="'+escHtml(v)+'" onclick="segClick(this)">'+escHtml(v)+'</button>';}).join('');return '<div><label class="fl">'+label+'</label><div class="seg" data-seg="'+k+'">'+b+'</div></div>';}
@@ -414,6 +416,7 @@ TAB.paciente=function(){
     '<div class="grid2" style="gap:8px">'+inp('p_edad','Edad','años','number')+segfInline('p_sexo','Sexo',['M','F'])+'</div>'+
     inp('p_peso','Peso (kg)','','number')+inp('p_talla','Talla (cm)','','number')+
     '<div><label class="fl">IMC</label><div class="in" id="p_imc" style="background:var(--bg2)">—</div></div>'+
+    '<div><label class="fl">ASC (Mosteller)</label><div class="in" id="p_asc" style="background:var(--bg2)">—</div></div>'+
     inp('p_fecha','Fecha del estudio','','date')+inp('p_solic','Médico solicitante','Dr./Dra.')+'</div>'+
     '<div class="grid2" style="margin-top:12px">'+ta('p_indic','Indicación / Motivo del estudio','Motivo de la ecografía…')+ta('p_obs','Observaciones clínicas','')+'</div>')
   + card('🖼️ Imágenes del estudio',
@@ -594,6 +597,8 @@ function recompute(){
   /* IMC */
   var pe=num(S.p_peso),ta_=num(S.p_talla);
   if(pe&&ta_){var imc=pe/Math.pow(ta_/100,2);setTxt('p_imc',fmt(imc,1)+' kg/m²');}else setTxt('p_imc','—');
+  /* ASC (Mosteller) → disponible en S.p_asc para índices indexados por superficie */
+  if(pe&&ta_){var asc=Math.sqrt(pe*ta_/3600);S.p_asc=Math.round(asc*100)/100;setTxt('p_asc',fmt(asc,2)+' m²');}else{S.p_asc='';setTxt('p_asc','—');}
 
   /* CARDIACO conclusion */
   var cc=$('c_concl');
@@ -748,7 +753,7 @@ TOP.calc=function(){
     '</div></div>';
 };
 function calcCard(title,formula,fields,outId,fn){
-  var inputs=fields.map(function(f){return '<div><label class="fl">'+f[1]+'</label><input class="in" type="number" id="'+f[0]+'" oninput="'+fn+'"></div>';}).join('');
+  var inputs=fields.map(function(f){return '<div><label class="fl">'+f[1]+'</label><input class="in" type="text" inputmode="decimal" id="'+f[0]+'" oninput="'+fn+'"></div>';}).join('');
   return '<div class="calcbox"><div style="font-weight:700;color:var(--teal3);margin-bottom:6px">'+title+'</div><div class="formula">'+escHtml(formula)+'</div><div class="grid3">'+inputs+'</div><div class="calc-res" id="'+outId+'">—</div></div>';
 }
 function gv(id){var e=$(id);return e?num(e.value):null;}
@@ -797,7 +802,7 @@ var ACAD={
   tec:['Paraesternal eje largo: paciente en decúbito lateral izquierdo, sonda 3.º-4.º EIC paraesternal, marca al hombro derecho. Evalúa VI, TSVI, válvulas Ao/mitral y pericardio.','Apical 4 cámaras: ápex, marca a la izquierda del paciente. Compara tamaño VD/VI y función.','Subcostal: sonda subxifoidea apuntando al hombro izquierdo; buena para pericardio en paro.','VCI: corte subcostal longitudinal, medir 1-2 cm de la unión con AD, valorar diámetro y colapso inspiratorio.'],
   vals:[['FEVI normal','≥ 52% (H) / ≥ 54% (M)'],['Diámetro VI diastólico','42–58 mm'],['VCI normal','15–20 mm, colapso >50%'],['TAPSE','≥ 17 mm'],['S\' lateral tricúspide','≥ 9,5 cm/s'],['VTI TSVI','18–22 cm'],['Diámetro TSVI','1,8–2,2 cm'],['GC','4–8 L/min'],['PSAP','< 35 mmHg']],
   pat:['FEVI reducida (visual): disminución del engrosamiento y excursión endocárdica.','VD dilatado (VD/VI >1 en apical 4C) + septum en D → sobrecarga aguda (TEP).','Derrame pericárdico con colapso de cavidades derechas → taponamiento.','VCI dilatada sin colapso → PVC elevada / congestión.','VCI pequeña hipercolapsable → hipovolemia / precarga-dependencia.'],
-  formula:'<div class="calcbox"><div class="formula">GC = VS × FC   ·   VS = 0,785 × D² × VTI</div><div class="grid4"><div><label class="fl">D TSVI (cm)</label><input class="in" type="number" id="af_d" oninput="afGC()"></div><div><label class="fl">VTI (cm)</label><input class="in" type="number" id="af_vti" oninput="afGC()"></div><div><label class="fl">FC</label><input class="in" type="number" id="af_fc" oninput="afGC()"></div><div><label class="fl">SC (m²)</label><input class="in" type="number" id="af_sc" oninput="afGC()"></div></div><div class="calc-res" id="af_gc">—</div></div>',
+  formula:'<div class="calcbox"><div class="formula">GC = VS × FC   ·   VS = 0,785 × D² × VTI</div><div class="grid4"><div><label class="fl">D TSVI (cm)</label><input class="in" type="text" inputmode="decimal" id="af_d" oninput="afGC()"></div><div><label class="fl">VTI (cm)</label><input class="in" type="text" inputmode="decimal" id="af_vti" oninput="afGC()"></div><div><label class="fl">FC</label><input class="in" type="text" inputmode="decimal" id="af_fc" oninput="afGC()"></div><div><label class="fl">SC (m²)</label><input class="in" type="text" inputmode="decimal" id="af_sc" oninput="afGC()"></div></div><div class="calc-res" id="af_gc">—</div></div>',
   afterRender:function(){window.afGC=function(){var d=gv('af_d'),v=gv('af_vti'),f=gv('af_fc'),s=gv('af_sc');if(d&&v){var vs=0.785*d*d*v;var t='Paso 1 · área TSVI = 0,785×'+d+'² = '+fmt(0.785*d*d,2)+' cm²  →  VS = área×VTI = '+fmt(vs,1)+' ml';if(f){var gc=vs*f/1000;t+='  →  GC = VS×FC = '+fmt(gc,2)+' L/min';if(s)t+='  →  IC = '+fmt(gc/s,2)+' L/min/m²';}setTxt('af_gc',t);}else setTxt('af_gc','—');};},
   quiz:[['¿Qué ventana es de elección para descartar derrame pericárdico durante un paro?',['Paraesternal corto','Subcostal 4 cámaras','Apical 2 cámaras','Supraesternal'],1],
    ['Una VCI dilatada (>21 mm) sin colapso inspiratorio sugiere PAD aproximada de:',['3 mmHg','8 mmHg','15 mmHg','0 mmHg'],2],
@@ -810,7 +815,7 @@ var ACAD={
   tec:['Sonda convex o lineal perpendicular a las costillas → "signo del murciélago" (costillas + línea pleural).','Identificar deslizamiento pleural (lung sliding) en tiempo real.','M-mode: patrón "orilla de playa" (seashore) normal; "código de barras" en neumotórax.','Protocolo BLUE: puntos anterior superior, anterior inferior y PLAPS (posterolateral) por hemitórax.'],
   vals:[['Líneas A','Normal (pulmón aireado)'],['Líneas B por campo','0–2 = normal; ≥3 = patológico'],['Deslizamiento pleural','Presente = descarta neumotórax en ese punto'],['Línea pleural','Fina, hiperecoica, <1 mm, deslizante'],['Punto pulmonar','Específico de neumotórax']],
   pat:['≥3 líneas B en 2+ campos bilaterales → síndrome intersticial (EAP cardiogénico, SDRA).','Ausencia de deslizamiento + líneas A + punto pulmonar → neumotórax.','Consolidación con broncograma aéreo (hepatización) → neumonía.','Derrame pleural anecoico con "signo de la medusa/cortina" y pulmón atelectasiado.'],
-  formula:'<div class="calcbox"><div class="formula">Volumen derrame (ml) ≈ 20 × separación interpleural (mm)  [Balik]</div><div class="grid3"><div><label class="fl">Separación (mm)</label><input class="in" type="number" id="af_sep" oninput="afDerr()"></div></div><div class="calc-res" id="af_derr">—</div></div>',
+  formula:'<div class="calcbox"><div class="formula">Volumen derrame (ml) ≈ 20 × separación interpleural (mm)  [Balik]</div><div class="grid3"><div><label class="fl">Separación (mm)</label><input class="in" type="text" inputmode="decimal" id="af_sep" oninput="afDerr()"></div></div><div class="calc-res" id="af_derr">—</div></div>',
   afterRender:function(){window.afDerr=function(){var s=gv('af_sep');setTxt('af_derr',s?('Vol ≈ 20 × '+s+' = '+fmt(20*s,0)+' ml'):'—');};},
   quiz:[['Las líneas B ecográficas representan:',['Aire pleural','Engrosamiento septal / agua extravascular','Costillas','Diafragma'],1],
    ['El hallazgo MÁS específico de neumotórax es:',['Líneas A','Punto pulmonar','Líneas B','Deslizamiento pleural'],1],
@@ -823,7 +828,7 @@ var ACAD={
   tec:['Morrison (hepatorrenal): sonda en línea axilar media derecha, 11.º-12.º EIC.','Esplenorrenal: línea axilar posterior izquierda, más cefálico.','Pelviano (Douglas): suprapúbico, longitudinal y transversal.','Pericárdico: ventana subxifoidea.','E-FAST: planos torácicos anteriores para deslizamiento pleural.'],
   vals:[['Líquido libre','Anecoico en espacios dependientes'],['Aorta abdominal','< 30 mm (aneurisma ≥30)'],['Colédoco','< 6–7 mm'],['Regla 3-6-9 (asas)','delgado <3, colon <6, ciego <9 cm'],['Esplenomegalia masiva','> 18 cm eje longitudinal'],['Riñón normal','9–12 cm']],
   pat:['Líquido en Morrison → hemoperitoneo (trauma) o ascitis.','Aorta ≥30 mm → aneurisma; riesgo de rotura si sintomático.','Vesícula con litiasis + Murphy ecográfico + pared >3 mm → colecistitis.','Dilatación pielocalicial → hidronefrosis / uropatía obstructiva.'],
-  formula:'<div class="calcbox"><div class="formula">Aorta: aneurisma si diámetro ≥ 30 mm (medir de pared externa a pared externa)</div><div class="grid3"><div><label class="fl">Diámetro máx (mm)</label><input class="in" type="number" id="af_ao" oninput="afAo()"></div></div><div class="calc-res" id="af_ao_out">—</div></div>',
+  formula:'<div class="calcbox"><div class="formula">Aorta: aneurisma si diámetro ≥ 30 mm (medir de pared externa a pared externa)</div><div class="grid3"><div><label class="fl">Diámetro máx (mm)</label><input class="in" type="text" inputmode="decimal" id="af_ao" oninput="afAo()"></div></div><div class="calc-res" id="af_ao_out">—</div></div>',
   afterRender:function(){window.afAo=function(){var a=gv('af_ao');setTxt('af_ao_out',a?(fmt(a,0)+' mm — '+(a>=30?'ANEURISMA':a>=25?'ectasia':'normal')):'—');};},
   quiz:[['El espacio de Morrison corresponde a:',['Esplenorrenal','Hepatorrenal','Douglas','Pericárdico'],1],
    ['El E-FAST agrega a las ventanas clásicas la evaluación de:',['Vía biliar','Tórax (neumo/hemotórax)','Vejiga','Riñón'],1],
@@ -836,7 +841,7 @@ var ACAD={
   tec:['Vena femoral común en el pliegue inguinal, eje corto, comprimir cada 1 cm.','Seguir hasta femoral superficial y poplítea (hueco poplíteo).','Comparar con la arteria (pulsátil, no colapsable).','ITB: PA sistólica en tobillo (pedia/tibial post.) dividida por PA braquial más alta.'],
   vals:[['Vena normal','Totalmente compresible'],['ITB normal','0,90–1,30'],['IMT carotídeo normal','< 0,9 mm'],['Reflujo venoso patológico','> 0,5 s'],['Estenosis significativa','≥ 50–70%']],
   pat:['Vena no compresible con material ecogénico → TVP.','ITB <0,9 → enfermedad arterial periférica; <0,4 severa.','ITB >1,3 → arterias no compresibles (calcificación, diabetes).','Placa carotídea con estenosis → riesgo cerebrovascular.'],
-  formula:'<div class="calcbox"><div class="formula">ITB = PA tobillo / PA brazo</div><div class="grid3"><div><label class="fl">PA tobillo</label><input class="in" type="number" id="af_pat" oninput="afItb()"></div><div><label class="fl">PA brazo</label><input class="in" type="number" id="af_pab" oninput="afItb()"></div></div><div class="calc-res" id="af_itb">—</div></div>',
+  formula:'<div class="calcbox"><div class="formula">ITB = PA tobillo / PA brazo</div><div class="grid3"><div><label class="fl">PA tobillo</label><input class="in" type="text" inputmode="decimal" id="af_pat" oninput="afItb()"></div><div><label class="fl">PA brazo</label><input class="in" type="text" inputmode="decimal" id="af_pab" oninput="afItb()"></div></div><div class="calc-res" id="af_itb">—</div></div>',
   afterRender:function(){window.afItb=function(){var t=gv('af_pat'),b=gv('af_pab');if(t&&b){var i=t/b;setTxt('af_itb','ITB = '+fmt(i,2)+' — '+(i>1.3?'rígido':i>=0.9?'normal':i>=0.7?'EAP leve':i>=0.4?'EAP moderada':'EAP severa'));}else setTxt('af_itb','—');};},
   quiz:[['El criterio ecográfico principal de TVP es:',['Vena dilatada','Vena no compresible','Flujo aumentado','Arteria pulsátil'],1],
    ['Un ITB de 0,6 indica:',['Normal','EAP leve','EAP moderada','Arterias calcificadas'],2],
@@ -849,7 +854,7 @@ var ACAD={
   tec:['Sonda lineal de alta frecuencia, ojo cerrado, gel abundante sobre el párpado.','Baja intensidad acústica (principio ALARA) para proteger el ojo.','Identificar el nervio óptico hipoecoico posterior al globo.','Medir a 3 mm del polo posterior, perpendicular al eje del nervio. Promediar ambos ojos.'],
   vals:[['DVNO normal','< 5 mm'],['DVNO elevado','5–5,9 mm'],['HTIC probable','≥ 6 mm'],['Punto de medición','3 mm posterior al globo']],
   pat:['DVNO ≥6 mm → hipertensión endocraneana probable.','Membrana flotante ondulante → desprendimiento de retina/vítreo.','Cristalino desplazado → luxación.','Hemorragia vítrea → puntos ecogénicos móviles.'],
-  formula:'<div class="calcbox"><div class="formula">PIC ≈ 4,5 + 3,7 × (DVNO − 4)  (orientativo)</div><div class="grid3"><div><label class="fl">DVNO (mm)</label><input class="in" type="number" id="af_dvno" oninput="afPic()"></div></div><div class="calc-res" id="af_pic">—</div></div>',
+  formula:'<div class="calcbox"><div class="formula">PIC ≈ 4,5 + 3,7 × (DVNO − 4)  (orientativo)</div><div class="grid3"><div><label class="fl">DVNO (mm)</label><input class="in" type="text" inputmode="decimal" id="af_dvno" oninput="afPic()"></div></div><div class="calc-res" id="af_pic">—</div></div>',
   afterRender:function(){window.afPic=function(){var d=gv('af_dvno');if(d){var p=4.5+3.7*(d-4);setTxt('af_pic','PIC ≈ '+fmt(Math.max(p,0),0)+' mmHg — '+(d>=6?'HTIC probable':d>=5?'elevado':'normal'));}else setTxt('af_pic','—');};},
   quiz:[['El DVNO se mide a qué distancia del globo?',['1 mm','3 mm','5 mm','10 mm'],1],
    ['Un DVNO ≥6 mm sugiere:',['Normal','Hipertensión endocraneana','Catarata','Desprendimiento de retina'],1],
@@ -874,7 +879,7 @@ var ACAD={
   tec:['Ventana temporal (sobre el arco cigomático) para MCA, ACA, PCA.','Sonda de baja frecuencia (2 MHz), Doppler pulsado.','Registrar velocidad media, pico sistólico y diastólica en cada vaso.','Ventana orbitaria (oftálmica/carótida) y occipital (basilar/vertebral) según necesidad.'],
   vals:[['MCA velocidad media','< 120 cm/s'],['IP normal','< 1,2'],['Vasoespasmo leve','Vm 120–150 cm/s'],['Vasoespasmo moderado','Vm 150–200 cm/s'],['Vasoespasmo severo','Vm > 200 cm/s'],['Índice de Lindegaard','MCA/ACI extracraneal; >3 espasmo']],
   pat:['Vm elevada + Lindegaard alto → vasoespasmo (HSA).','IP >1,2 → aumento de resistencia (HTIC).','Flujo diastólico reverberante / espigas sistólicas / ausencia de señal → paro circulatorio cerebral.'],
-  formula:'<div class="calcbox"><div class="formula">IP = (Vsist − Vdiast) / Vmedia</div><div class="grid3"><div><label class="fl">Vsist</label><input class="in" type="number" id="af_vs" oninput="afIp()"></div><div><label class="fl">Vdiast</label><input class="in" type="number" id="af_vd" oninput="afIp()"></div><div><label class="fl">Vmedia</label><input class="in" type="number" id="af_vm" oninput="afIp()"></div></div><div class="calc-res" id="af_ip">—</div></div>',
+  formula:'<div class="calcbox"><div class="formula">IP = (Vsist − Vdiast) / Vmedia</div><div class="grid3"><div><label class="fl">Vsist</label><input class="in" type="text" inputmode="decimal" id="af_vs" oninput="afIp()"></div><div><label class="fl">Vdiast</label><input class="in" type="text" inputmode="decimal" id="af_vd" oninput="afIp()"></div><div><label class="fl">Vmedia</label><input class="in" type="text" inputmode="decimal" id="af_vm" oninput="afIp()"></div></div><div class="calc-res" id="af_ip">—</div></div>',
   afterRender:function(){window.afIp=function(){var s=gv('af_vs'),d=gv('af_vd'),m=gv('af_vm');if(s!=null&&d!=null&&m){var ip=(s-d)/m;setTxt('af_ip','IP = ('+s+'−'+d+')/'+m+' = '+fmt(ip,2)+' — '+(ip>1.2?'elevado (↑resistencia/HTIC)':'normal'));}else setTxt('af_ip','—');};},
   quiz:[['El índice de pulsatilidad se calcula como:',['(Vsist+Vdiast)/Vmedia','(Vsist−Vdiast)/Vmedia','Vmedia/Vsist','Vsist×Vdiast'],1],
    ['Una velocidad media en MCA >200 cm/s indica vasoespasmo:',['Leve','Moderado','Severo','Ausente'],2],
@@ -990,12 +995,30 @@ function buildConclusiones(){
   var lines=[];
   if(S.c_fevi||S.c_ivc||S.c_derr_pel){var p=[];if(S.c_fevi)p.push('Función sistólica VI '+S.c_fevi);if(S.c_derr_pel)p.push('derrame pericárdico '+S.c_derr_pel);if(S.c_vd)p.push('cavidades derechas '+S.c_vd);if(S.c_ivc)p.push('VCI '+S.c_ivc+' (PAD ~'+ivcPad(S.c_ivc,num(S.c_ivcd))+' mmHg)');lines.push(['Cardíaco',p.join('; ')]);}
   var zk=['pu_asd','pu_aid','pu_pld','pu_asi','pu_aii','pu_pli'];var anyPu=zk.some(function(k){return S[k];})||S.pu_slide||S.pu_derr_lado;
-  if(anyPu){var pc=$('pu_concl');lines.push(['Pulmonar',pc?pc.textContent:'evaluado']);}
-  if(S.ab_morrison||S.ab_espleno||S.ab_douglas||S.ab_peri){var ac=$('ab_concl');lines.push(['Abdominal/FAST',ac?ac.textContent:'evaluado']);}
-  if(S.va_fc||S.va_fs||S.va_pop||S.va_tib){var vc=$('va_concl');lines.push(['Vascular',vc?vc.textContent:'evaluado']);}
+  if(anyPu){
+    var nB=0,nCons=0,nDerr=0,nNorm=0;zk.forEach(function(k){var v=S[k];if(v==='Líneas B')nB++;else if(v==='Consolidación')nCons++;else if(v==='Derrame')nDerr++;else if(v)nNorm++;});
+    var pdx=[];
+    if(S.pu_slide==='Ausente'||S.pu_point==='Presente')pdx.push('sospecha de neumotórax'+(S.pu_point==='Presente'?' (punto pulmonar presente)':' (ausencia de deslizamiento)'));
+    if(nB>=2)pdx.push('patrón B bilateral difuso → síndrome intersticial (EAP/SDRA)');else if(nB===1)pdx.push('líneas B focales');
+    if(nCons>0)pdx.push('consolidación ('+nCons+' zona/s)');
+    if(nDerr>0||(S.pu_derr_lado&&S.pu_derr_lado!=='No'))pdx.push('derrame pleural'+(S.pu_derr_lado&&S.pu_derr_lado!=='No'?' '+S.pu_derr_lado:'')+(S.pu_derr_mag&&S.pu_derr_mag!=='—'?' ('+S.pu_derr_mag+')':''));
+    if(!pdx.length&&nNorm>0)pdx.push('perfil A bilateral, pulmón aireado normal');
+    lines.push(['Pulmonar','Patrón BLUE: '+nNorm+' normal · '+nB+' B · '+nCons+' consolidación · '+nDerr+' derrame'+(pdx.length?' — '+pdx.join('; '):'')]);
+  }
+  if(S.ab_morrison||S.ab_espleno||S.ab_douglas||S.ab_peri||S.ab_torax){
+    var apos=[];if(S.ab_morrison==='Líquido +')apos.push('Morrison');if(S.ab_espleno==='Líquido +')apos.push('esplenorrenal');if(S.ab_douglas==='Líquido +')apos.push('Douglas');if(S.ab_peri==='Derrame +')apos.push('pericárdico');
+    var atxt='FAST '+(apos.length?'POSITIVO — líquido libre en: '+apos.join(', '):'negativo — sin líquido libre en las ventanas evaluadas')+'.';
+    if(S.ab_torax==='Alterado')atxt+=' Tórax alterado (evaluar neumo/hemotórax).';
+    lines.push(['Abdominal/FAST',atxt]);
+  }
+  if(S.va_fc||S.va_fs||S.va_pop||S.va_tib){
+    var vseg=[['va_fc','femoral común'],['va_fs','femoral superficial'],['va_pop','poplítea'],['va_tib','tibiales']],vnc=[];
+    vseg.forEach(function(s){if(S[s[0]]==='No compresible')vnc.push(s[1]);});
+    lines.push(['Vascular',vnc.length?('TVP PRESENTE'+(S.va_lado?' ('+S.va_lado+')':'')+' — segmento(s) no compresible(s): '+vnc.join(', ')+'.'):'Sin evidencia de TVP — segmentos evaluados compresibles.']);
+  }
   if(S.nr_dvno_od||S.nr_dvno_oi||S.nr_ip_d||S.nr_ip_i||S.nr_lm_a||S.nr_pup_vel||S.nr_pup_refl){
     var np=[],nmx=Math.max(num(S.nr_dvno_od)||0,num(S.nr_dvno_oi)||0),nipmx=Math.max(num(S.nr_ip_d)||0,num(S.nr_ip_i)||0),na=num(S.nr_lm_a),nb=num(S.nr_lm_b);
-    if(nmx>0)np.push('DVNO '+fmt(nmx,1)+' mm'+(nmx>5.6?' (HIC probable)':nmx>=5?' (limítrofe)':''));
+    if(nmx>0)np.push(nmx<=5.0?('DVNO normal ('+fmt(nmx,1)+' mm)'):nmx<5.8?('DVNO '+fmt(nmx,1)+' mm — valor borderline (normal ≤5.0 mm). Correlacionar con clínica y neuroimagen.'):('DVNO '+fmt(nmx,1)+' mm — compatible con HIC probable (punto de corte ≥5.5-5.8 mm, sensibilidad 100%).'));
     if(nipmx>0)np.push('IP ACM '+fmt(nipmx,2)+(nipmx>1.1?' (resistencia elevada)':''));
     if(na!=null&&nb!=null)np.push('desvío LM '+fmt((na-nb)/2,1)+' mm'+(Math.abs((na-nb)/2)>4?' (significativo)':''));
     if(S.nr_pup_refl)np.push('pupila '+S.nr_pup_refl.toLowerCase()+(S.nr_pup_refl==='Ausente'?' (compromiso de tronco)':num(S.nr_pup_vel)!=null&&num(S.nr_pup_vel)<0.09?', vel '+fmt(num(S.nr_pup_vel),2)+' cm/s enlentecida':''));
@@ -1026,6 +1049,10 @@ function abrirInforme(){
   h+='<div class="subhead">Hallazgos por módulo</div>';
   if(lines.length){h+='<table class="tbl"><tr><th>Módulo</th><th>Hallazgos</th></tr>'+lines.map(function(l){return '<tr><td><b>'+escHtml(l[0])+'</b></td><td>'+escHtml(l[1])+'</td></tr>';}).join('')+'</table>';}
   else h+='<div class="hint">Sin hallazgos cargados aún.</div>';
+  /* Conclusión integrada autogenerada desde los hallazgos por módulo (editable).
+     Se regenera mientras el médico no la haya editado (S.inf_concl === última auto). */
+  var _auto='Paciente'+(S.p_edad?(' de '+S.p_edad+' años'):'')+'. POCUS multimodal realizado'+(S.p_indic?(' en contexto de '+S.p_indic):'')+'.'+(lines.length?('\n'+lines.map(function(l){return '- '+l[0]+': '+l[1];}).join('\n')):'');
+  if(!S.inf_concl||S.inf_concl===S._inf_concl_auto){S.inf_concl=_auto;S._inf_concl_auto=_auto;persist();}
   h+='<div class="subhead">Conclusión integrada</div><textarea class="in" id="inf_concl" placeholder="Redacte la conclusión integrada…" oninput="setK(\'inf_concl\',this.value)">'+escHtml(S.inf_concl||'')+'</textarea>';
   h+='<div class="subhead">Firma</div><div>'+escHtml(med||'—')+'</div>';
   h+='<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px"><button class="btn btn-ghost btn-sm" onclick="closeModal(\'modal-informe\')">Cerrar</button><button class="btn btn-blue btn-sm" onclick="generarPDF()">📄 Exportar PDF</button></div>';
@@ -1555,7 +1582,7 @@ function procReportData(){
 function setH(id,h){var e=$(id);if(e)e.innerHTML=h;}
 TAB.neuro=function(){
   var dvno=card('👁️ DVNO — Vaina del nervio óptico',
-    '<div class="hint" style="margin-bottom:8px">Medir la vaina 3 mm por detrás de la retina, perpendicular al nervio. Corte 5.6 mm (S90% E85%) para hipertensión intracraneana.</div>'+
+    '<div class="hint" style="margin-bottom:8px">Medir la vaina 3 mm por detrás de la retina, perpendicular al nervio. Rangos: normal ≤5.0 mm · borderline 5.1–5.7 mm · HIC probable ≥5.8 mm (punto de corte 5.5–5.8 mm, sensibilidad 100%).</div>'+
     '<div class="grid2">'+inp('nr_dvno_od','DVNO ojo derecho (mm)','','number')+inp('nr_dvno_oi','DVNO ojo izquierdo (mm)','','number')+'</div>'+
     '<div class="concl" id="nr_dvno_int" style="margin-top:12px"></div>');
   var dtc=card('🧠 DTC / EcoDTC — ACM bilateral',
@@ -1629,7 +1656,7 @@ function nwRecompute(){
   /* ── NEURO ── */
   if($('nr_dvno_int')){
     var od=num(S.nr_dvno_od),oi=num(S.nr_dvno_oi),mx=Math.max(od||0,oi||0);
-    setH('nr_dvno_int', mx<=0?'Ingrese la medición de la vaina.':(mx>5.6?'🔴 DVNO '+fmt(mx,1)+' mm (&gt;5.6) — hipertensión intracraneana probable (S90% E85%).':mx>=5?'🟡 DVNO '+fmt(mx,1)+' mm (5–5.6) — limítrofe, correlacionar clínica.':'✅ DVNO '+fmt(mx,1)+' mm (&lt;5) — normal.'));
+    setH('nr_dvno_int', mx<=0?'Ingrese la medición de la vaina.':(mx<=5.0?'✅ DVNO '+fmt(mx,1)+' mm (≤5.0) — normal.':mx<5.8?'🟡 DVNO '+fmt(mx,1)+' mm (5.1–5.7) — valor borderline (normal ≤5.0 mm). Correlacionar con clínica y neuroimagen.':'🔴 DVNO '+fmt(mx,1)+' mm (≥5.8) — compatible con HIC probable (punto de corte ≥5.5–5.8 mm, sensibilidad 100%).'));
     var ipd=num(S.nr_ip_d),ipi=num(S.nr_ip_i),ipmx=Math.max(ipd||0,ipi||0);
     setH('nr_ip_int', ipmx<=0?'Ingrese el índice de pulsatilidad (IP) de la ACM.':(ipmx>1.1?'🔴 IP ACM '+fmt(ipmx,2)+' (&gt;1.1) — resistencia elevada, sugiere hipertensión intracraneana.':'✅ IP ACM '+fmt(ipmx,2)+' (≤1.1) — dentro de lo normal.'));
     var a=num(S.nr_lm_a),b=num(S.nr_lm_b);
