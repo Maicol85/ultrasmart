@@ -131,9 +131,10 @@
   .formula{font-family:'Space Mono',monospace;font-size:12px;background:var(--bg);border:1px dashed var(--border);border-radius:7px;padding:8px 10px;color:var(--text2);margin:8px 0;white-space:pre-wrap}
 
   /* ---------- FLOATING PANEL ---------- */
-  .fpanel{position:fixed;right:14px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:8px;z-index:120}
-  .fpanel button{background:var(--panel);color:#fff;border:none;border-radius:9px;padding:10px 14px;font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.35)}
+  .fpanel{position:fixed;bottom:0;left:0;right:0;background:var(--bg2);border-top:1px solid var(--border);padding:8px 16px;display:flex;gap:8px;justify-content:center;z-index:100}
+  .fpanel button{background:var(--panel);color:#fff;border:none;border-radius:9px;padding:9px 16px;font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.25)}
   .fpanel button:hover{background:var(--panel2)}
+  body{padding-bottom:56px}
 
   /* image thumbs */
   .thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;margin-top:12px}
@@ -176,8 +177,8 @@
     .navtab{flex-shrink:0}
     .grid2,.grid3,.grid4{grid-template-columns:1fr 1fr}
     .content{padding:12px 12px 90px}
-    .fpanel{flex-direction:row;top:auto;bottom:8px;right:8px;transform:none}
-    .fpanel button{padding:8px 10px;font-size:11px}
+    .fpanel{padding:6px 8px;gap:6px}
+    .fpanel button{padding:7px 10px;font-size:11px}
   }
 </style>
 </head>
@@ -1062,7 +1063,7 @@ function buildConclusiones(){
 }
 function abrirInforme(){
   var med=localStorage.getItem(MEDKEY)||S.cfg_med||'';
-  var lines=buildConclusiones();
+  var lines=usInterpHallazgos();
   var h='<h2>UltraSmart</h2><div class="msub">Informe de estudio</div>';
   h+='<table class="tbl"><tr><th>Paciente</th><td>'+escHtml(S.p_nombre||'—')+'</td><th>Documento</th><td>'+escHtml(S.p_doc||'—')+'</td></tr>';
   h+='<tr><th>Edad/Sexo</th><td>'+escHtml((S.p_edad||'—')+' / '+(S.p_sexo||'—'))+'</td><th>Fecha</th><td>'+escHtml(S.p_fecha||'—')+'</td></tr>';
@@ -1072,7 +1073,7 @@ function abrirInforme(){
   else h+='<div class="hint">Sin hallazgos cargados aún.</div>';
   /* Conclusión integrada autogenerada desde los hallazgos por módulo (editable).
      Se regenera mientras el médico no la haya editado (S.inf_concl === última auto). */
-  var _auto='Paciente'+(S.p_edad?(' de '+S.p_edad+' años'):'')+'. POCUS multimodal realizado'+(S.p_indic?(' en contexto de '+S.p_indic):'')+'.'+(lines.length?('\n'+lines.map(function(l){return '- '+l[0]+': '+l[1];}).join('\n')):'');
+  var _auto=usMotorConclusion();
   if(!S.inf_concl||S.inf_concl===S._inf_concl_auto){S.inf_concl=_auto;S._inf_concl_auto=_auto;persist();}
   h+='<div class="subhead">Conclusión integrada</div><textarea class="in" id="inf_concl" placeholder="Redacte la conclusión integrada…" oninput="setK(\'inf_concl\',this.value)">'+escHtml(S.inf_concl||'')+'</textarea>';
   h+='<div class="subhead">Firma</div><div>'+escHtml(med||'—')+'</div>';
@@ -1081,6 +1082,110 @@ function abrirInforme(){
   $('informeBody').innerHTML=h;openModal('modal-informe');
 }
 window.abrirInforme=abrirInforme;
+
+/* =====================================================================
+   Motor de razonamiento clínico — flags, hallazgos interpretativos y conclusión
+   ===================================================================== */
+function usGC(){
+  var hg=num(S.h_dtsvi),hv=num(S.h_vti),hf=num(S.h_fc);
+  if(hg&&hv&&hf) return 0.785*hg*hg*hv*hf/1000;
+  var cg=num(S.c_dtsvi),cv=num(S.c_vti),cf=num(S.c_fc);
+  if(cg&&cv&&cf) return 0.785*cg*cg*cv*cf/1000;
+  return null;
+}
+function usRVS(){
+  var hg=num(S.h_dtsvi),hv=num(S.h_vti),hf=num(S.h_fc),hpam=num(S.h_pam),hpvc=num(S.h_pvc);
+  if(hg&&hv&&hf&&hpam!=null&&hpvc!=null){var gc=0.785*hg*hg*hv*hf/1000;if(gc>0)return (hpam-hpvc)*80/gc;}
+  return null;
+}
+function usFlags(){
+  var f={};
+  f.gc=usGC(); f.rvs=usRVS();
+  f.gcAlto=f.gc!=null&&f.gc>8; f.gcBajo=f.gc!=null&&f.gc<4;
+  f.rvsBajas=f.rvs!=null&&f.rvs<800; f.rvsAltas=f.rvs!=null&&f.rvs>1200;
+  f.feviNormal=S.c_fevi==='Normal';
+  f.feviRed=!!S.c_fevi&&S.c_fevi!=='Normal';
+  f.vdDil=(S.c_vd==='VD dilatado'||S.c_vd==='VD/VI >1');
+  f.vciDil=(S.c_ivc==='No colapsable');
+  f.vciColap=(S.c_ivc==='Colapsable >50%');
+  f.derrPeri=!!S.c_derr_pel&&S.c_derr_pel!=='No';
+  f.derrPeriSig=(S.c_derr_pel==='Moderado'||S.c_derr_pel==='Severo');
+  var zk=['pu_asd','pu_aid','pu_pld','pu_asi','pu_aii','pu_pli'];
+  f.nB=0;f.nCons=0;f.nDerr=0;f.nA=0;
+  zk.forEach(function(k){var v=S[k];if(v==='Líneas B')f.nB++;else if(v==='Consolidación')f.nCons++;else if(v==='Derrame')f.nDerr++;else if(v)f.nA++;});
+  f.lineasBbil=f.nB>=2;
+  f.perfilA=f.nA>=2&&f.nB===0&&f.nCons===0&&f.nDerr===0;
+  f.slideAusente=S.pu_slide==='Ausente';
+  f.puntoPulm=S.pu_point==='Presente';
+  f.plaps=(S.pu_pld==='Consolidación'||S.pu_pld==='Derrame'||S.pu_pli==='Consolidación'||S.pu_pli==='Derrame');
+  f.derrPleu=(f.nDerr>0||(S.pu_derr_lado&&S.pu_derr_lado!=='No'));
+  f.fastPos=(S.ab_morrison==='Líquido +'||S.ab_espleno==='Líquido +'||S.ab_douglas==='Líquido +'||S.ab_peri==='Derrame +');
+  f.fastRecesos=[];if(S.ab_morrison==='Líquido +')f.fastRecesos.push('Morrison');if(S.ab_espleno==='Líquido +')f.fastRecesos.push('esplenorrenal');if(S.ab_douglas==='Líquido +')f.fastRecesos.push('Douglas');if(S.ab_peri==='Derrame +')f.fastRecesos.push('pericárdico');
+  f.dvno=Math.max(num(S.nr_dvno_od)||0,num(S.nr_dvno_oi)||0);
+  f.ipacm=Math.max(num(S.nr_ip_d)||0,num(S.nr_ip_i)||0);
+  var vseg=[['va_fc','femoral común'],['va_fs','femoral superficial'],['va_pop','poplítea'],['va_tib','tibiales']];f.tvp=[];vseg.forEach(function(s){if(S[s[0]]==='No compresible')f.tvp.push(s[1]);});
+  f.cardiacData=!!(S.c_fevi||S.c_ivc||S.c_vd||S.c_derr_pel||f.gc!=null||f.rvs!=null);
+  return f;
+}
+/* CAMBIO 4 — Hallazgos por módulo: solo positivos, lenguaje interpretativo. */
+function usInterpHallazgos(){
+  var f=usFlags(),out=[];
+  var cp=[];
+  if(f.feviRed)cp.push('Disfunción sistólica VI ('+String(S.c_fevi).toLowerCase()+')');
+  if(f.derrPeri)cp.push('Derrame pericárdico '+String(S.c_derr_pel).toLowerCase());
+  if(f.vdDil)cp.push('Dilatación de cavidades derechas');
+  if(f.vciDil)cp.push('Elementos de presión venosa central elevada (VCI sin colapso)');
+  if(f.rvsBajas)cp.push('Resistencias vasculares sistémicas bajas');
+  if(f.rvsAltas)cp.push('Resistencias vasculares sistémicas elevadas');
+  if(cp.length)out.push(['Cardíaco / hemodinámico',cp.join('; ')]);
+  var pp=[];
+  if(f.lineasBbil)pp.push('Elementos de edema pulmonar / síndrome intersticial bilateral');
+  if(f.slideAusente||f.puntoPulm)pp.push('Elementos sugestivos de neumotórax'+(f.puntoPulm?' (punto pulmonar presente)':''));
+  if(f.nCons>0)pp.push('Elementos de condensación alveolar');
+  if(f.derrPleu)pp.push('Derrame pleural'+((S.pu_derr_lado&&S.pu_derr_lado!=='No')?(' '+S.pu_derr_lado):''));
+  if(pp.length)out.push(['Pulmonar',pp.join('; ')]);
+  if(f.fastPos)out.push(['Abdominal / FAST','Líquido libre en: '+f.fastRecesos.join(', ')]);
+  if(f.tvp.length)out.push(['Vascular','Trombosis venosa profunda — segmento(s) no compresible(s): '+f.tvp.join(', ')+(S.va_lado?(' ('+S.va_lado+')'):'')]);
+  var np=[];
+  if(f.dvno>5.6)np.push('DVNO elevado ('+fmt(f.dvno,1)+' mm) — elementos de hipertensión endocraneana');
+  if(f.ipacm>1.4)np.push('IP ACM elevado ('+fmt(f.ipacm,2)+') — resistencia vascular cerebral aumentada');
+  if(np.length)out.push(['Neuro',np.join('; ')]);
+  return out;
+}
+/* CAMBIO 5 — Conclusión integrada interpretativa (motor de razonamiento). */
+function usMotorConclusion(){
+  var f=usFlags(),c=[];
+  if(f.gcAlto&&f.rvsBajas&&f.feviNormal)
+    c.push('Patrón hemodinámico hiperdinámico con resistencias bajas. Elementos compatibles con shock distributivo. Descartar sepsis, shock neurogénico, anafilaxis.');
+  else if(f.gcBajo&&f.feviRed&&f.lineasBbil)
+    c.push('Elementos de falla cardíaca anterógrada y retrógrada. Descartar shock cardiogénico.');
+  else if(f.gcBajo&&f.feviNormal&&f.vdDil&&f.vciDil&&!f.derrPeri)
+    c.push('Elementos de obstrucción al flujo derecho. Descartar TEP masivo. Considerar exploración venosa de miembros inferiores.');
+  else if(f.gcBajo&&f.feviNormal&&f.derrPeri&&f.derrPeriSig)
+    c.push('Elementos sugestivos de taponamiento cardíaco. Evaluar pericardiocentesis urgente.');
+  else if(f.gcBajo&&f.feviNormal&&f.rvsAltas&&f.vciColap&&f.fastPos)
+    c.push('Elementos de hipovolemia. Descartar origen hemorrágico.');
+  if(f.lineasBbil&&f.feviRed) c.push('Elementos de edema pulmonar cardiogénico.');
+  else if(f.lineasBbil&&!f.feviRed) c.push('Síndrome intersticial bilateral. Descartar SDRA, neumonitis.');
+  if(f.perfilA&&f.slideAusente&&f.puntoPulm) c.push('Elementos diagnósticos de neumotórax. Confirmar con punto pulmonar.');
+  else if(f.perfilA&&!f.feviRed) c.push('Pulmón seco. En contexto de insuficiencia respiratoria aguda se sugiere explorar territorio venoso para descartar TEP.');
+  if(f.nCons>0&&f.plaps) c.push('Elementos de condensación alveolar. Compatible con neumonía o atelectasia.');
+  if(f.fastPos) c.push('FAST positivo — líquido libre en '+f.fastRecesos.join(', ')+'. Correlacionar con el estado hemodinámico; considerar origen hemorrágico.');
+  if(f.dvno>5.6) c.push('Elementos de hipertensión endocraneana (DVNO elevado).');
+  if(f.ipacm>1.4) c.push('Resistencia vascular cerebral aumentada. Descartar vasoespasmo o HIC.');
+  var cvMatched=c.some(function(t){return /distributivo|falla card|obstrucci|taponamiento|hipovolemia/i.test(t);});
+  if(f.cardiacData&&!cvMatched){
+    var faltan=[];
+    if(f.gc==null)faltan.push('gasto cardíaco (VTI/TSVI/FC)');
+    if(f.rvs==null)faltan.push('RVS (PAM y PVC)');
+    if(!S.c_fevi)faltan.push('FEVI');
+    if(!S.c_ivc)faltan.push('VCI');
+    var probable=f.feviRed?'un componente cardiogénico':(f.vciColap?'hipovolemia':(f.rvsBajas?'un patrón distributivo':'un patrón no clasificable con los datos disponibles'));
+    c.push('Valoración hemodinámica incompleta. No se descarta '+probable+'. Se sugiere completar con '+(faltan.length?faltan.join(', '):'los módulos faltantes')+'.');
+  }
+  if(!c.length) return 'Sin elementos positivos suficientes para una interpretación integrada. Complete los módulos POCUS pertinentes según la sospecha clínica.';
+  return c.join(' ');
+}
 
 /* =====================================================================
    PDF (jsPDF)
@@ -1100,32 +1205,57 @@ function generarPDF(){
   y=34;doc.setTextColor(30,30,30);
   function line(l,v,bold){doc.setFont('helvetica',bold?'bold':'normal');doc.setFontSize(10);doc.setTextColor(90,90,90);doc.text(l,14,y);doc.setTextColor(20,20,20);doc.text(String(v||'—'),60,y);y+=6;}
   function head(t){y+=2;doc.setFillColor(238,242,246);doc.rect(12,y-4,W-24,7,'F');doc.setFont('helvetica','bold');doc.setFontSize(11);doc.setTextColor(13,148,136);doc.text(t,14,y+1);y+=8;doc.setTextColor(20,20,20);}
-  head('Datos del paciente');
-  line('Nombre:',S.p_nombre);line('Documento:',S.p_doc);line('Edad / Sexo:',(S.p_edad||'—')+' / '+(S.p_sexo||'—'));
-  line('Fecha:',S.p_fecha);line('Indicación:',S.p_indic);line('Médico:',localStorage.getItem(MEDKEY)||S.cfg_med);
+  // CAMBIO 2 — Datos del paciente: tabla compacta 3x2 con fecha arriba a la derecha
+  var med=localStorage.getItem(MEDKEY)||S.cfg_med||'';
+  y+=2;doc.setFillColor(238,242,246);doc.rect(12,y-4,W-24,7,'F');
+  doc.setFont('helvetica','bold');doc.setFontSize(11);doc.setTextColor(13,148,136);doc.text('Datos del paciente',14,y+1);
+  doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(90,90,90);doc.text('Fecha: '+(S.p_fecha||'—'),W-14,y+1,{align:'right'});
+  y+=10;doc.setTextColor(20,20,20);
+  var cX=[14,110],cW=86;
+  function pcell(cx,ry,label,val){doc.setFont('helvetica','bold');doc.setFontSize(8.5);doc.setTextColor(110,110,110);doc.text(label,cx,ry);doc.setFont('helvetica','normal');doc.setFontSize(10);doc.setTextColor(20,20,20);var vv=doc.splitTextToSize(String(val||'—'),cW);doc.text(vv,cx,ry+4.6);}
+  pcell(cX[0],y,'Nombre',S.p_nombre);pcell(cX[1],y,'Documento',S.p_doc);y+=11;
+  pcell(cX[0],y,'Edad / Sexo',(S.p_edad||'—')+' / '+(S.p_sexo||'—'));pcell(cX[1],y,'Médico',med);y+=11;
+  pcell(cX[0],y,'Indicación',S.p_indic);y+=12;
+  // CAMBIO 4 — Hallazgos por módulo: solo positivos e interpretativos
   head('Hallazgos por módulo');
-  var lines=buildConclusiones();
-  // Selectividad por tab: si hay checkboxes "Incluir … en el informe PDF" marcados,
-  // el informe incluye SOLO los módulos de los tabs seleccionados. Si no hay ninguno
-  // marcado, se incluye todo (comportamiento del botón global, sin cambios).
-  var INCL_MAP={'Cardíaco':'cardiaco','Pulmonar':'pulmonar','Abdominal/FAST':'abdominal','Vascular':'vascular','Neuro':'neuro','Weaning':'weaning'};
-  var anyIncl=Object.keys(INCL_TABS).some(function(t){return S['incl-'+t]==='1';});
+  var lines=usInterpHallazgos();
+  var INCL_MAP={'Cardíaco / hemodinámico':'cardiaco','Pulmonar':'pulmonar','Abdominal / FAST':'abdominal','Vascular':'vascular','Neuro':'neuro'};
+  var anyIncl=(typeof INCL_TABS!=='undefined')&&Object.keys(INCL_TABS).some(function(t){return S['incl-'+t]==='1';});
   if(anyIncl){lines=lines.filter(function(l){var t=INCL_MAP[l[0]];if(!t||!INCL_TABS[t])return true;return S['incl-'+t]==='1';});}
   doc.setFontSize(9.5);
   if(lines.length){lines.forEach(function(l){doc.setFont('helvetica','bold');doc.setTextColor(3,105,161);doc.text(l[0]+':',14,y);
-    doc.setFont('helvetica','normal');doc.setTextColor(30,30,30);var wrapped=doc.splitTextToSize(l[1],125);doc.text(wrapped,60,y);y+=Math.max(6,wrapped.length*4.6);
+    doc.setFont('helvetica','normal');doc.setTextColor(30,30,30);var wr=doc.splitTextToSize(l[1],125);doc.text(wr,60,y);y+=Math.max(6,wr.length*4.6);
     if(y>250){doc.addPage();y=20;}});}
-  else{doc.text('Sin hallazgos cargados.',14,y);y+=6;}
-  head('Conclusión integrada');
-  doc.setFont('helvetica','normal');doc.setFontSize(10);var cc=doc.splitTextToSize(S.inf_concl||'—',W-28);doc.text(cc,14,y);y+=cc.length*5+6;
-  // ── Valoración hemodinámica (si el checkbox está marcado) ──
+  else{doc.setTextColor(30,30,30);doc.text('Sin hallazgos positivos relevantes.',14,y);y+=6;}
+  // CAMBIO 3 — Módulos extra utilizados (antes de la conclusión)
   if(S['incl-hemodinamia']==='1'&&typeof hdReportData==='function'){
     var _hdr=hdReportData();
     if(_hdr.length){head('Valoración hemodinámica');doc.setFontSize(9.5);
       _hdr.forEach(function(r){doc.setFont('helvetica','bold');doc.setTextColor(3,105,161);doc.text(r[0]+':',14,y);doc.setFont('helvetica','normal');doc.setTextColor(30,30,30);var w=doc.splitTextToSize(String(r[1]),120);doc.text(w,60,y);y+=Math.max(6,w.length*4.6);if(y>250){doc.addPage();y=20;}});
       doc.setFont('helvetica','italic');doc.setFontSize(7.5);doc.setTextColor(120,120,120);doc.text('Orientativo — no reemplaza el juicio clínico.',14,y);y+=6;doc.setTextColor(30,30,30);}
   }
-  // ── Procedimientos realizados (si el checkbox está marcado) ──
+  (function(){
+    var adv=[];var _edv=num(S.c_edv),_esv=num(S.c_esv);
+    if(_edv&&_esv&&_edv>_esv)adv.push(['FEVI Simpson',fmt((_edv-_esv)/_edv*100,0)+' %']);
+    var g=usGC();if(g!=null)adv.push(['Gasto cardíaco',fmt(g,2)+' L/min']);
+    if(num(S.c_tapse)!=null)adv.push(['TAPSE',S.c_tapse+' mm']);
+    if(num(S.c_sp)!=null)adv.push(["S' lateral",S.c_sp+' cm/s']);
+    if(num(S.c_fac)!=null)adv.push(['FAC',S.c_fac+' %']);
+    if(num(S.c_vit)!=null)adv.push(['PSAP estimada',fmt(4*num(S.c_vit)*num(S.c_vit)+(num(S.c_pad)||0),0)+' mmHg']);
+    if(num(S.c_ee)!=null)adv.push(["E/e' promedio",String(S.c_ee)]);
+    if(adv.length){head('Modo avanzado (cardíaco)');doc.setFontSize(9.5);
+      adv.forEach(function(r){doc.setFont('helvetica','bold');doc.setTextColor(3,105,161);doc.text(r[0]+':',14,y);doc.setFont('helvetica','normal');doc.setTextColor(30,30,30);doc.text(String(r[1]),72,y);y+=6;if(y>250){doc.addPage();y=20;}});}
+  })();
+  if(typeof protoReportData==='function'){
+    var _pr=protoReportData();
+    if(_pr.length){head('Protocolos ecográficos (RUSH / FALLS / BLUE / FAST)');
+      _pr.forEach(function(r){if(y>245){doc.addPage();y=20;}
+        doc.setFont('helvetica','bold');doc.setFontSize(10);doc.setTextColor(13,148,136);doc.text(String(r.name),14,y);y+=5.5;
+        doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(90,90,90);doc.text('Fecha: '+r.fecha,14,y);y+=5;doc.setTextColor(30,30,30);
+        var cw=doc.splitTextToSize('Camino: '+(r.camino||'—'),182);doc.text(cw,14,y);y+=cw.length*4.4+1;
+        doc.setFont('helvetica','bold');doc.setTextColor(190,40,40);var dw=doc.splitTextToSize('Diagnóstico: '+r.dx,182);doc.text(dw,14,y);y+=dw.length*4.6;
+        doc.setFont('helvetica','normal');doc.setTextColor(30,30,30);var sw=doc.splitTextToSize('Manejo: '+r.sug,182);doc.text(sw,14,y);y+=sw.length*4.4+3;});}
+  }
   if(S['incl-procedimientos']==='1'&&typeof procReportData==='function'){
     var _prc=procReportData();
     if(_prc.length){head('Procedimientos realizados');
@@ -1134,17 +1264,12 @@ function generarPDF(){
         pr.campos.forEach(function(r){doc.setFont('helvetica','bold');doc.setTextColor(3,105,161);doc.text(r[0]+':',14,y);doc.setFont('helvetica','normal');doc.setTextColor(30,30,30);var w=doc.splitTextToSize(String(r[1]),115);doc.text(w,66,y);y+=Math.max(6,w.length*4.6);if(y>250){doc.addPage();y=20;}});
         doc.setFont('helvetica','bold');doc.setTextColor(3,105,161);doc.text('Checklist:',14,y);doc.setFont('helvetica','normal');doc.setTextColor(30,30,30);doc.text(pr.checkDone+' / '+pr.checkTotal+' ítems completados',66,y);y+=8;});}
   }
-  // ── Protocolos incluidos en el informe ──
-  if(typeof protoReportData==='function'){
-    var _pr=protoReportData();
-    if(_pr.length){head('Protocolos ecográficos');
-      _pr.forEach(function(r){if(y>245){doc.addPage();y=20;}
-        doc.setFont('helvetica','bold');doc.setFontSize(10);doc.setTextColor(13,148,136);doc.text(String(r.name),14,y);y+=5.5;
-        doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(90,90,90);doc.text('Fecha: '+r.fecha,14,y);y+=5;doc.setTextColor(30,30,30);
-        var cw=doc.splitTextToSize('Camino: '+(r.camino||'—'),182);doc.text(cw,14,y);y+=cw.length*4.4+1;
-        doc.setFont('helvetica','bold');doc.setTextColor(190,40,40);var dw=doc.splitTextToSize('Diagnóstico: '+r.dx,182);doc.text(dw,14,y);y+=dw.length*4.6;
-        doc.setFont('helvetica','normal');doc.setTextColor(30,30,30);var sw=doc.splitTextToSize('Manejo: '+r.sug,182);doc.text(sw,14,y);y+=sw.length*4.4+3;});}
-  }
+  // CAMBIO 5 — Conclusión integrada interpretativa (motor), al final
+  if(y>245){doc.addPage();y=20;}
+  head('Conclusión integrada');
+  var _manual=(S.inf_concl&&S._inf_concl_auto&&S.inf_concl!==S._inf_concl_auto);
+  var conclTxt=_manual?S.inf_concl:usMotorConclusion();
+  doc.setFont('helvetica','normal');doc.setFontSize(10);doc.setTextColor(20,20,20);var cc=doc.splitTextToSize(conclTxt||'—',W-28);doc.text(cc,14,y);y+=cc.length*5+6;
   // images (max 4)
   imgAll(function(all){
     var imgs=all.filter(function(x){return x.studyId==='current';}).slice(0,4);
