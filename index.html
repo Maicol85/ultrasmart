@@ -1154,37 +1154,44 @@ function usInterpHallazgos(){
 }
 /* CAMBIO 5 — Conclusión integrada interpretativa (motor de razonamiento). */
 function usMotorConclusion(){
-  var f=usFlags(),c=[];
+  var f=usFlags();
+  var cv=[],pulm=[],abd=[],neuro=[];
   if(f.gcAlto&&f.rvsBajas&&f.feviNormal)
-    c.push('Patrón hemodinámico hiperdinámico con resistencias bajas. Elementos compatibles con shock distributivo. Descartar sepsis, shock neurogénico, anafilaxis.');
+    cv.push('Patrón hemodinámico hiperdinámico con resistencias bajas. Elementos compatibles con shock distributivo. Descartar sepsis, shock neurogénico, anafilaxis.');
   else if(f.gcBajo&&f.feviRed&&f.lineasBbil)
-    c.push('Elementos de falla cardíaca anterógrada y retrógrada. Descartar shock cardiogénico.');
+    cv.push('Elementos de falla cardíaca anterógrada y retrógrada. Descartar shock cardiogénico.');
   else if(f.gcBajo&&f.feviNormal&&f.vdDil&&f.vciDil&&!f.derrPeri)
-    c.push('Elementos de obstrucción al flujo derecho. Descartar TEP masivo. Considerar exploración venosa de miembros inferiores.');
+    cv.push('Elementos de obstrucción al flujo derecho. Descartar TEP masivo. Considerar exploración venosa de miembros inferiores.');
   else if(f.gcBajo&&f.feviNormal&&f.derrPeri&&f.derrPeriSig)
-    c.push('Elementos sugestivos de taponamiento cardíaco. Evaluar pericardiocentesis urgente.');
+    cv.push('Elementos sugestivos de taponamiento cardíaco. Evaluar pericardiocentesis urgente.');
   else if(f.gcBajo&&f.feviNormal&&f.rvsAltas&&f.vciColap&&f.fastPos)
-    c.push('Elementos de hipovolemia. Descartar origen hemorrágico.');
-  if(f.lineasBbil&&f.feviRed) c.push('Elementos de edema pulmonar cardiogénico.');
-  else if(f.lineasBbil&&!f.feviRed) c.push('Síndrome intersticial bilateral. Descartar SDRA, neumonitis.');
-  if(f.perfilA&&f.slideAusente&&f.puntoPulm) c.push('Elementos diagnósticos de neumotórax. Confirmar con punto pulmonar.');
-  else if(f.perfilA&&!f.feviRed) c.push('Pulmón seco. En contexto de insuficiencia respiratoria aguda se sugiere explorar territorio venoso para descartar TEP.');
-  if(f.nCons>0&&f.plaps) c.push('Elementos de condensación alveolar. Compatible con neumonía o atelectasia.');
-  if(f.fastPos) c.push('FAST positivo — líquido libre en '+f.fastRecesos.join(', ')+'. Correlacionar con el estado hemodinámico; considerar origen hemorrágico.');
-  if(f.dvno>5.6) c.push('Elementos de hipertensión endocraneana (DVNO elevado).');
-  if(f.ipacm>1.4) c.push('Resistencia vascular cerebral aumentada. Descartar vasoespasmo o HIC.');
-  var cvMatched=c.some(function(t){return /distributivo|falla card|obstrucci|taponamiento|hipovolemia/i.test(t);});
-  if(f.cardiacData&&!cvMatched){
+    cv.push('Elementos de hipovolemia. Descartar origen hemorrágico.');
+  if(f.lineasBbil&&f.feviRed) pulm.push('Elementos de edema pulmonar cardiogénico.');
+  else if(f.lineasBbil&&!f.feviRed) pulm.push('Síndrome intersticial bilateral. Descartar SDRA, neumonitis.');
+  if(f.perfilA&&f.slideAusente&&f.puntoPulm) pulm.push('Elementos diagnósticos de neumotórax. Confirmar con punto pulmonar.');
+  else if(f.perfilA&&!f.feviRed) pulm.push('Pulmón seco. En contexto de insuficiencia respiratoria aguda se sugiere explorar territorio venoso para descartar TEP.');
+  if(f.nCons>0&&f.plaps) pulm.push('Elementos de condensación alveolar. Compatible con neumonía o atelectasia.');
+  if(f.fastPos) abd.push('FAST positivo — líquido libre en '+f.fastRecesos.join(', ')+'. Correlacionar con el estado hemodinámico; considerar origen hemorrágico.');
+  if(f.dvno>5.6) neuro.push('Elementos de hipertensión endocraneana (DVNO elevado).');
+  if(f.ipacm>1.4) neuro.push('Resistencia vascular cerebral aumentada. Descartar vasoespasmo o HIC.');
+  var incompleta='';
+  if(f.cardiacData&&!cv.length){
     var faltan=[];
     if(f.gc==null)faltan.push('gasto cardíaco (VTI/TSVI/FC)');
     if(f.rvs==null)faltan.push('RVS (PAM y PVC)');
     if(!S.c_fevi)faltan.push('FEVI');
     if(!S.c_ivc)faltan.push('VCI');
     var probable=f.feviRed?'un componente cardiogénico':(f.vciColap?'hipovolemia':(f.rvsBajas?'un patrón distributivo':'un patrón no clasificable con los datos disponibles'));
-    c.push('Valoración hemodinámica incompleta. No se descarta '+probable+'. Se sugiere completar con '+(faltan.length?faltan.join(', '):'los módulos faltantes')+'.');
+    incompleta='Evaluación incompleta: valoración hemodinámica incompleta. No se descarta '+probable+'. Se sugiere completar con '+(faltan.length?faltan.join(', '):'los módulos faltantes')+'.';
   }
-  if(!c.length) return 'Sin elementos positivos suficientes para una interpretación integrada. Complete los módulos POCUS pertinentes según la sospecha clínica.';
-  return c.join(' ');
+  var paras=[];
+  if(pulm.length) paras.push('Pulmonar: '+pulm.join(' '));
+  if(cv.length) paras.push('Cardiovascular / hemodinámico: '+cv.join(' '));
+  if(abd.length) paras.push('Abdominal / FAST: '+abd.join(' '));
+  if(neuro.length) paras.push('Neuro: '+neuro.join(' '));
+  if(incompleta) paras.push(incompleta);
+  if(!paras.length) return 'Sin elementos positivos suficientes para una interpretación integrada. Complete los módulos POCUS pertinentes según la sospecha clínica.';
+  return paras.join('\n\n');
 }
 
 /* =====================================================================
@@ -1210,12 +1217,13 @@ function generarPDF(){
   y+=2;doc.setFillColor(238,242,246);doc.rect(12,y-4,W-24,7,'F');
   doc.setFont('helvetica','bold');doc.setFontSize(11);doc.setTextColor(13,148,136);doc.text('Datos del paciente',14,y+1);
   doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(90,90,90);doc.text('Fecha: '+(S.p_fecha||'—'),W-14,y+1,{align:'right'});
-  y+=10;doc.setTextColor(20,20,20);
-  var cX=[14,110],cW=86;
-  function pcell(cx,ry,label,val){doc.setFont('helvetica','bold');doc.setFontSize(8.5);doc.setTextColor(110,110,110);doc.text(label,cx,ry);doc.setFont('helvetica','normal');doc.setFontSize(10);doc.setTextColor(20,20,20);var vv=doc.splitTextToSize(String(val||'—'),cW);doc.text(vv,cx,ry+4.6);}
-  pcell(cX[0],y,'Nombre',S.p_nombre);pcell(cX[1],y,'Documento',S.p_doc);y+=11;
-  pcell(cX[0],y,'Edad / Sexo',(S.p_edad||'—')+' / '+(S.p_sexo||'—'));pcell(cX[1],y,'Médico',med);y+=11;
-  pcell(cX[0],y,'Indicación',S.p_indic);y+=12;
+  y+=9;doc.setTextColor(20,20,20);doc.setFontSize(9.5);
+  var cX=[14,110];
+  // inline: "Label: valor" en una sola línea, dos columnas, compacto
+  function pcell(cx,ry,label,val){doc.setFont('helvetica','bold');doc.setFontSize(9.5);doc.setTextColor(90,90,90);var lb=label+': ';doc.text(lb,cx,ry);var lw=doc.getTextWidth(lb);doc.setFont('helvetica','normal');doc.setTextColor(20,20,20);doc.text(String(val||'—'),cx+lw,ry);}
+  pcell(cX[0],y,'Nombre',S.p_nombre);pcell(cX[1],y,'Documento',S.p_doc);y+=6;
+  pcell(cX[0],y,'Edad / Sexo',(S.p_edad||'—')+' / '+(S.p_sexo||'—'));pcell(cX[1],y,'Médico',med);y+=6;
+  pcell(cX[0],y,'Indicación',S.p_indic);y+=8;
   // CAMBIO 4 — Hallazgos por módulo: solo positivos e interpretativos
   head('Hallazgos por módulo');
   var lines=usInterpHallazgos();
@@ -1269,7 +1277,9 @@ function generarPDF(){
   head('Conclusión integrada');
   var _manual=(S.inf_concl&&S._inf_concl_auto&&S.inf_concl!==S._inf_concl_auto);
   var conclTxt=_manual?S.inf_concl:usMotorConclusion();
-  doc.setFont('helvetica','normal');doc.setFontSize(10);doc.setTextColor(20,20,20);var cc=doc.splitTextToSize(conclTxt||'—',W-28);doc.text(cc,14,y);y+=cc.length*5+6;
+  doc.setFont('helvetica','normal');doc.setFontSize(10);doc.setTextColor(20,20,20);
+  String(conclTxt||'—').split('\n\n').forEach(function(par){var pp=doc.splitTextToSize(par,W-28);if(y+pp.length*5>285){doc.addPage();y=20;}doc.text(pp,14,y);y+=pp.length*5+2.5;});
+  y+=4;
   // images (max 4)
   imgAll(function(all){
     var imgs=all.filter(function(x){return x.studyId==='current';}).slice(0,4);
@@ -1444,7 +1454,7 @@ function hdReportData(){
   var out=[];
   if(S.hd_vci_max||S.hd_vci_min)out.push(['VCI máx/mín',(S.hd_vci_max||'—')+' / '+(S.hd_vci_min||'—')+' mm · colapso '+(S.hd_colapso||'—')+' · '+(S.hd_modo||'—')]);
   var g=hdGC();if(g.gc!=null)out.push(['Gasto cardíaco','VS '+fmt(g.vs,1)+' ml · GC '+fmt(g.gc,2)+' L/min']);
-  var plr=hdPLR();if(plr!=null)out.push(['PLR (ΔVTI)',fmt(plr,0)+'% '+(plr>12?'→ respondedor a volumen':'→ no respondedor')]);
+  var plr=hdPLR();if(plr!=null)out.push(['PLR (delta VTI)',fmt(plr,0)+'% '+(plr>12?'-> respondedor a volumen':'-> no respondedor')]);
   var f=[];[['hd_contract','Contractilidad'],['hd_vci','VCI'],['hd_lineasb','Líneas B'],['hd_vd','VD'],['hd_fast','FAST'],['hd_peri','Pericardio'],['hd_tvp','TVP'],['hd_sliding','Lung sliding']].forEach(function(p){if(S[p[0]])f.push(p[1]+': '+S[p[0]]);});
   if(f.length)out.push(['Hallazgos',f.join(' · ')]);
   var dx=hdDiagnose();if(dx){out.push(['Diagnóstico sugerido',dx.dx]);out.push(['Razonamiento',dx.reason]);out.push(['Manejo orientativo',dx.sug]);}
