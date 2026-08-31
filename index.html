@@ -1086,16 +1086,62 @@ window.abrirInforme=abrirInforme;
 /* =====================================================================
    Motor de razonamiento clínico — flags, hallazgos interpretativos y conclusión
    ===================================================================== */
-function usGC(){
+/* El gasto cardíaco se puede cargar en TRES lugares, y dos usan unidades distintas:
+     hd_dtsvi  → pestaña Hemodinámica, tarjeta «VTI / Gasto cardíaco», en MILÍMETROS
+     h_dtsvi   → pestaña Hemodinámica, tarjeta «Hemodinámico completo», en CENTÍMETROS
+     c_dtsvi   → modo avanzado de Cardíaco, en centímetros
+   Las dos primeras conviven en la MISMA pantalla, a veinte líneas de distancia, y una pide
+   milímetros y la otra centímetros. Las dos son registro del paciente: el desempate es por
+   orden de la tarjeta, no porque una sea un borrador.
+   Esta función alimenta la conclusión y el PDF, y NO miraba `hd_*`. Medido: cargando la
+   pestaña Hemodinámica (DTSVI 20 mm, VTI 18, FC 80) la pantalla mostraba «Gasto cardíaco
+   4,52 L/min» y el informe firmado salía sin gasto cardíaco, porque acá se devolvía null.
+   Se agrega `hd_*` PRIMERO: es la pestaña del estudio, la que se completa durante el
+   examen; Calculadoras es un borrador que no forma parte del registro del paciente. */
+function usGCFuentes(){
+  var out=[];
+  var dm=num(S.hd_dtsvi),vm=num(S.hd_vti),fm=num(S.hd_fc);
+  if(dm&&vm&&fm) out.push({src:'hemodinamia', gc:0.785*Math.pow(dm/10,2)*vm*fm/1000});
   var hg=num(S.h_dtsvi),hv=num(S.h_vti),hf=num(S.h_fc);
-  if(hg&&hv&&hf) return 0.785*hg*hg*hv*hf/1000;
+  if(hg&&hv&&hf) out.push({src:'calculadora', gc:0.785*hg*hg*hv*hf/1000});
   var cg=num(S.c_dtsvi),cv=num(S.c_vti),cf=num(S.c_fc);
-  if(cg&&cv&&cf) return 0.785*cg*cg*cv*cf/1000;
-  return null;
+  if(cg&&cv&&cf) out.push({src:'cardiaco', gc:0.785*cg*cg*cv*cf/1000});
+  return out;
 }
+function usGC(){
+  var f=usGCFuentes();
+  return f.length?f[0].gc:null;
+}
+/* Devuelve las fuentes que discrepan más de un 10% con la que se informa. Con tres juegos
+   de campos para la misma medida —y dos en unidades distintas— el mismo número escrito en
+   el lugar equivocado da un gasto cardíaco 100 veces mayor; elegir en silencio entre dos
+   valores que no coinciden es peor que no calcular ninguno. */
+function usGCDiscrepancia(){
+  var f=usGCFuentes();
+  if(!f.length) return null;
+  var base=f[0].gc;
+  /* COTA DE PLAUSIBILIDAD, antes de comparar fuentes. El error más probable no es cargar dos
+     veces: es cargar UNA sola vez en la unidad equivocada. «DTSVI (mm)» con 2,0 en vez de 20
+     da un GC de 0,05 L/min, y milímetros en el campo que pide centímetros dan ~450. Con una
+     sola fuente no hay con qué contrastar, y esos valores alimentan las ramas de shock
+     cardiogénico y distributivo de la conclusión sin que nada avise. */
+  if(base<1||base>15) return {implausible:true, informado:base, otras:[]};
+  if(f.length<2) return null;
+  var otras=f.slice(1).filter(function(x){return Math.abs(x.gc-base)>Math.max(0.1,base*0.10);});
+  return otras.length?{informado:base, otras:otras}:null;
+}
+/* Las RVS se derivan del MISMO gasto cardíaco que se informa: calculado aparte sólo desde
+   `h_*`, la conclusión podía clasificar el shock con un GC distinto del que imprime el PDF.
+   PAM y PVC siguen viniendo de Calculadoras, que es donde se cargan. */
+/* PAM y PVC viven en la tarjeta «Hemodinámico completo», junto a h_*. Derivar las RVS del
+   GC informado (que puede venir de hd_*) mezclaba dos juegos de medidas: el PDF imprimía una
+   RVS calculada con un gasto cardíaco y la conclusión clasificaba el shock con otro. Se
+   calculan sólo cuando el GC informado sale del MISMO juego que la PAM y la PVC. */
 function usRVS(){
-  var hg=num(S.h_dtsvi),hv=num(S.h_vti),hf=num(S.h_fc),hpam=num(S.h_pam),hpvc=num(S.h_pvc);
-  if(hg&&hv&&hf&&hpam!=null&&hpvc!=null){var gc=0.785*hg*hg*hv*hf/1000;if(gc>0)return (hpam-hpvc)*80/gc;}
+  var f=usGCFuentes();
+  if(!f.length||f[0].src!=='calculadora') return null;
+  var hpam=num(S.h_pam),hpvc=num(S.h_pvc);
+  if(f[0].gc>0&&hpam!=null&&hpvc!=null) return (hpam-hpvc)*80/f[0].gc;
   return null;
 }
 function usFlags(){
@@ -1127,6 +1173,51 @@ function usFlags(){
   f.cardiacData=!!(S.c_fevi||S.c_ivc||S.c_vd||S.c_derr_pel||f.gc!=null||f.rvs!=null);
   return f;
 }
+/* ── Campos descriptivos que se cargaban y NO llegaban a ningún lado ──
+   Toda la tarjeta abdominal PLUS (riñones, hígado, vía biliar, vesícula, ascitis) y la
+   vascular PLUS (IMT, placa, estenosis, reflujo) eran WRITE-ONLY: cada clave aparecía una
+   sola vez en el archivo —su definición— y ninguna función las leía. El médico cargaba
+   «hidronefrosis severa» y el PDF salía sin una sola mención. El problema no era que
+   faltaran campos, sino que parecían funcionar.
+
+   Se informan TAL CUAL, sin interpretarlos: acá no hay criterio automático que aplicar y
+   ponerle uno inventado sería peor que no tenerlo. Sólo se emite lo que el médico marcó
+   como distinto de lo normal, más los valores numéricos que haya cargado. */
+function usDescriptivos(){
+  var v=function(k){var x=S[k];return (x===undefined||x===null||String(x).trim()==='')?null:String(x).trim();};
+  var out=[];
+  // Renal
+  var ren=[];
+  if(v('ab_rin_tam'))ren.push('tamaño '+v('ab_rin_tam')+' mm');
+  if(v('ab_hidro')&&v('ab_hidro')!=='No')ren.push('hidronefrosis '+v('ab_hidro').toLowerCase());
+  if(v('ab_rin_obs'))ren.push(v('ab_rin_obs'));
+  if(ren.length)out.push(['Renal',ren.join('; ')]);
+  // Hepatobiliar
+  var hb=[];
+  if(v('ab_hig_eco')&&v('ab_hig_eco')!=='Normal')hb.push('ecogenicidad hepática: '+v('ab_hig_eco').toLowerCase());
+  if(v('ab_hig_les'))hb.push('lesiones focales: '+v('ab_hig_les'));
+  if(v('ab_vb'))hb.push('colédoco '+v('ab_vb')+' mm');
+  if(v('ab_vb_lit')==='Sí')hb.push('litiasis en vía biliar');
+  if(v('ab_ves_lit')==='Sí')hb.push('litiasis vesicular');
+  if(v('ab_murphy')==='Positivo')hb.push('Murphy ecográfico positivo');
+  if(hb.length)out.push(['Hepatobiliar',hb.join('; ')]);
+  // Ascitis (líquido libre no traumático) — no lo cubre el FAST
+  if(v('ab_ascitis')&&v('ab_ascitis')!=='Ausente')out.push(['Ascitis','Líquido libre peritoneal — cuantía '+v('ab_ascitis').toLowerCase()]);
+  // Vascular no-TVP
+  var va=[];
+  if(v('va_imt'))va.push('IMT '+v('va_imt')+' mm');
+  if(v('va_placa')==='Sí')va.push('placa presente');
+  if(v('va_esten'))va.push('estenosis estimada '+v('va_esten')+'%');
+  /* El campo ofrece 'Ausente'/'Presente'; un regex /s[ií]/ no matchea ninguno de los dos,
+     así que esta rama no se ejecutaba nunca y el reflujo seguía siendo write-only. */
+  if(v('va_reflujo')==='Presente')va.push('reflujo venoso >0,5 s');
+  if(v('va_ivobs'))va.push(v('va_ivobs'));
+  if(va.length)out.push(['Vascular — otros',va.join('; ')]);
+  // Diámetro VI cargado a ojo en paraesternal
+  if(v('c_dvi'))out.push(['Cardíaco — biometría','Diámetro VI estimado '+v('c_dvi')+' mm']);
+  return out;
+}
+
 /* CAMBIO 4 — Hallazgos por módulo: solo positivos, lenguaje interpretativo. */
 function usInterpHallazgos(){
   var f=usFlags(),out=[];
@@ -1150,6 +1241,22 @@ function usInterpHallazgos(){
   if(f.dvno>5.6)np.push('DVNO elevado ('+fmt(f.dvno,1)+' mm) — elementos de hipertensión endocraneana');
   if(f.ipacm>1.4)np.push('IP ACM elevado ('+fmt(f.ipacm,2)+') — resistencia vascular cerebral aumentada');
   if(np.length)out.push(['Neuro',np.join('; ')]);
+  /* Los descriptivos van DESPUÉS de los interpretativos y antes del aviso de discrepancia. */
+  if(typeof usDescriptivos==='function')Array.prototype.push.apply(out,usDescriptivos());
+  /* Si el mismo gasto cardíaco fue cargado en dos pestañas con valores que no coinciden,
+     el informe lo dice. Callarlo obligaría a confiar en un desempate que el lector no ve. */
+  var _disc=(typeof usGCDiscrepancia==='function')?usGCDiscrepancia():null;
+  if(_disc){
+    out.push(['Revisar', _disc.implausible
+      ? ('Gasto cardíaco calculado ' + fmt(_disc.informado,2) + ' L/min, fuera del rango '
+         + 'fisiológico plausible (1-15). Verificar las unidades del diámetro del TSVI: la '
+         + 'tarjeta «VTI / Gasto cardíaco» lo pide en MILÍMETROS y «Hemodinámico completo» '
+         + 'en centímetros.')
+      : ('El gasto cardíaco fue cargado en más de un lugar con valores distintos: se informa '
+         + fmt(_disc.informado,2) + ' L/min y hay otro de '
+         + _disc.otras.map(function(x){return fmt(x.gc,2)+' L/min ('+x.src+')';}).join(' y ')
+         + '. Verificar cuál corresponde a este paciente.')]);
+  }
   return out;
 }
 /* CAMBIO 5 — Conclusión integrada interpretativa (motor de razonamiento). */
@@ -1227,14 +1334,45 @@ function generarPDF(){
   // CAMBIO 4 — Hallazgos por módulo: solo positivos e interpretativos
   head('Hallazgos por módulo');
   var lines=usInterpHallazgos();
-  var INCL_MAP={'Cardíaco / hemodinámico':'cardiaco','Pulmonar':'pulmonar','Abdominal / FAST':'abdominal','Vascular':'vascular','Neuro':'neuro'};
-  var anyIncl=(typeof INCL_TABS!=='undefined')&&Object.keys(INCL_TABS).some(function(t){return S['incl-'+t]==='1';});
+  var totalHallazgos=lines.length;
+  /* Los títulos descriptivos se mapean a la MISMA sección que su tab. Sin esto, el fallback
+     `if(!t) return true` los dejaba pasar siempre: tildando sólo «Cardíaco» el PDF descartaba
+     «Líquido libre en Morrison» y conservaba «Ascitis abundante», dejando una sección
+     abdominal a medias que el lector interpreta como el abdomen completo. */
+  var INCL_MAP={'Cardíaco / hemodinámico':'cardiaco','Pulmonar':'pulmonar','Abdominal / FAST':'abdominal','Vascular':'vascular','Neuro':'neuro',
+                'Renal':'abdominal','Hepatobiliar':'abdominal','Ascitis':'abdominal',
+                'Vascular — otros':'vascular','Cardíaco — biometría':'cardiaco'};
+  /* El filtro se activa SÓLO si se tildó una casilla que efectivamente puede seleccionar
+     hallazgos, o sea una de las que están en INCL_MAP. INCL_TABS ofrece 9 casillas y este
+     mapa cubre 5: con la condición vieja, tildar «Incluir Paciente» o «Incluir Weaning»
+     —que no aportan ninguna línea— encendía el filtro y descartaba TODO. Medido: con un
+     FAST positivo y una FEVI severa cargados, tildar «Incluir Paciente» dejaba el informe
+     sin hallazgos y además imprimía «Sin hallazgos positivos relevantes», o sea que una
+     casilla titulada «incluir» borraba un FAST positivo y afirmaba normalidad. */
+  var _gates=Object.keys(INCL_MAP).map(function(k){return INCL_MAP[k];});
+  var anyIncl=(typeof INCL_TABS!=='undefined')&&_gates.some(function(t){return INCL_TABS[t]&&S['incl-'+t]==='1';});
   if(anyIncl){lines=lines.filter(function(l){var t=INCL_MAP[l[0]];if(!t||!INCL_TABS[t])return true;return S['incl-'+t]==='1';});}
+  var ocultados=totalHallazgos-lines.length;
   doc.setFontSize(9.5);
-  if(lines.length){lines.forEach(function(l){doc.setFont('helvetica','bold');doc.setTextColor(3,105,161);doc.text(l[0]+':',14,y);
-    doc.setFont('helvetica','normal');doc.setTextColor(30,30,30);var wr=doc.splitTextToSize(l[1],125);doc.text(wr,60,y);y+=Math.max(6,wr.length*4.6);
-    if(y>250){doc.addPage();y=20;}});}
-  else{doc.setTextColor(30,30,30);doc.text('Sin hallazgos positivos relevantes.',14,y);y+=6;}
+  if(lines.length){lines.forEach(function(l){
+    var wr=doc.splitTextToSize(l[1],125);
+    /* El salto se decide ANTES de dibujar. Al revés —como estaba— un bloque de once líneas
+       o más se pintaba más allá del borde y jsPDF lo recortaba sin avisar; con los campos de
+       texto libre ahora en el informe, eso es pérdida silenciosa de un hallazgo escrito. */
+    if(y+Math.max(6,wr.length*4.6)>272){doc.addPage();y=20;}
+    doc.setFont('helvetica','bold');doc.setTextColor(3,105,161);doc.text(l[0]+':',14,y);
+    doc.setFont('helvetica','normal');doc.setTextColor(30,30,30);doc.text(wr,60,y);
+    y+=Math.max(6,wr.length*4.6);});}
+  /* «Sin hallazgos positivos relevantes» es una AFIRMACIÓN CLÍNICA: dice que se buscó y no
+     había. Sólo puede escribirse cuando de verdad no hubo ninguno, no cuando los hubo y el
+     filtro de secciones los dejó afuera. */
+  else if(totalHallazgos===0){doc.setTextColor(30,30,30);doc.text('Sin hallazgos positivos relevantes.',14,y);y+=6;}
+  else{doc.setTextColor(180,83,9);
+    doc.text('Este informe se limitó a las secciones seleccionadas; hay hallazgos en otras secciones no incluidas.',14,y);
+    doc.setTextColor(30,30,30);y+=6;}
+  if(lines.length&&ocultados>0){doc.setFontSize(8);doc.setTextColor(180,83,9);
+    doc.text('Nota: se omitieron '+ocultados+' hallazgo(s) de secciones no seleccionadas.',14,y);
+    doc.setFontSize(9.5);doc.setTextColor(30,30,30);y+=5;}
   // CAMBIO 3 — Módulos extra utilizados (antes de la conclusión)
   if(S['incl-hemodinamia']==='1'&&typeof hdReportData==='function'){
     var _hdr=hdReportData();
