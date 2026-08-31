@@ -425,7 +425,11 @@ window.topTab=topTab;
 
 /* Toggle "Incluir <tab> en el informe PDF" — se persiste en S['incl-<tab>'] para
    sobrevivir el re-render al cambiar de tab; generarPDF() lo lee para ser selectivo. */
-var INCL_TABS={paciente:'Paciente',cardiaco:'Cardíaco POCUS',pulmonar:'Pulmonar',vascular:'Vascular',abdominal:'Abdominal / FAST',weaning:'Weaning',neuro:'Neuro',procedimientos:'Procedimientos',academico:'Académico'};
+/* `hemodinamia` faltaba: es una pestaña de NAV pero no estaba acá, así que inclToggle()
+   devolvía '' —no se renderizaba la casilla—, S['incl-hemodinamia'] nunca podía valer '1' y
+   el bloque «Valoración hemodinámica» del PDF NUNCA se imprimía. Se perdían VCI máx/mín, el
+   PLR (el otro predictor de respuesta a fluidos que la app calcula) y VS/GC/IC/RVS. */
+var INCL_TABS={paciente:'Paciente',cardiaco:'Cardíaco POCUS',pulmonar:'Pulmonar',vascular:'Vascular',abdominal:'Abdominal / FAST',hemodinamia:'Hemodinámica',weaning:'Weaning',neuro:'Neuro',procedimientos:'Procedimientos',academico:'Académico'};
 function inclToggle(t){
   if(!INCL_TABS[t])return '';
   var on=(S['incl-'+t]==='1');
@@ -575,6 +579,10 @@ TAB.avanzado=function(){
     '</div></div>';
   var hemo='<div class="card"><div class="card-h">💉 Hemodinámico completo<span class="plus-badge">PLUS</span></div><div class="card-b">'+
     '<div class="grid4">'+inp('h_dtsvi','Diámetro TSVI (cm)','','number')+inp('h_vti','VTI (cm)','','number')+inp('h_fc','FC (lpm)','','number')+inp('h_pam','PAM (mmHg)','','number')+'</div>'+
+    /* h_pad (presión arterial diastólica) NO entra al informe a propósito: no alimenta
+       ningún cálculo —la PAM se carga directo en h_pam— y es un dato de monitorización que
+       ya está en la hoja de enfermería. Se deja el campo porque sirve de referencia al
+       calcular a mano, pero no es un hallazgo ecográfico y no corresponde firmarlo como tal. */
     '<div class="grid3" style="margin-top:8px">'+inp('h_sc','Sup. corporal (m²)','','number')+inp('h_pvc','PVC (mmHg)','','number')+inp('h_pad','PAD (mmHg)','','number')+'</div>'+
     '<div class="grid4" style="margin-top:10px"><div><label class="fl">VS</label><div class="in" id="h_vs" style="background:var(--bg2)">—</div></div><div><label class="fl">GC</label><div class="in" id="h_gc" style="background:var(--bg2)">—</div></div><div><label class="fl">IC</label><div class="in" id="h_ic" style="background:var(--bg2)">—</div></div><div><label class="fl">RVS</label><div class="in" id="h_rvs" style="background:var(--bg2)">—</div></div></div>'+
     '<div class="subhead">Predicción respuesta a fluidos</div><div class="grid3">'+inp('h_vti_esp','VTI esp (cm)','','number')+inp('h_vti_insp','VTI insp (cm)','','number')+'<div><label class="fl">ΔVTI</label><div class="in" id="h_dvti" style="background:var(--bg2)">—</div></div></div>'+
@@ -652,7 +660,16 @@ function recompute(){
   var cc=$('c_concl');
   if(cc){var parts=[];
     if(S.c_fevi)parts.push('<b>Función sistólica VI:</b> '+S.c_fevi);
-    if(S.c_derr_pel)parts.push('<b>Derrame pericárdico:</b> '+S.c_derr_pel+(S.c_derr_pel!=='No'&&S.c_derr_sub==='Sí'?' (confirmado subcostal)':''));
+    /* La pantalla decía «Derrame pericárdico: No» cuando el paraesternal era No y el
+       subcostal Sí — y el PDF, desde que el subcostal cuenta solo, decía que sí. El médico
+       revisaba la pantalla y firmaba lo contrario. */
+    if(S.c_derr_pel||S.c_derr_sub){
+      var _dpTxt=(S.c_derr_pel&&S.c_derr_pel!=='No')
+        ? (S.c_derr_pel+(S.c_derr_sub==='Sí'?' (confirmado subcostal)':''))
+        : (S.c_derr_sub==='Sí' ? 'presente en ventana subcostal'+(S.c_derr_pel==='No'?' (no visualizado en paraesternal)':'')
+                               : (S.c_derr_pel||'—'));
+      parts.push('<b>Derrame pericárdico:</b> '+_dpTxt);
+    }
     if(S.c_vd)parts.push('<b>Cavidades derechas:</b> '+S.c_vd+(S.c_fvd?' · función VD '+S.c_fvd:''));
     if(S.c_ivc){var pad=ivcPad(S.c_ivc,num(S.c_ivcd));parts.push('<b>IVC/PVC:</b> '+S.c_ivc+(S.c_ivcd?' ('+S.c_ivcd+' mm)':'')+' → PAD estimada ~'+pad+' mmHg');}
     cc.innerHTML=parts.length?parts.join('<br>'):'Complete los campos para generar la conclusión automática.';
@@ -1360,7 +1377,15 @@ function usFlags(){
   f.vdDil=(S.c_vd==='VD dilatado'||S.c_vd==='VD/VI >1')||(S.hd_vd==='Dilatado');
   f.vciDil=(S.c_ivc==='No colapsable')||(f.hdVci==='Distendida');
   f.vciColap=!f.vciDil&&((S.c_ivc==='Colapsable >50%')||(f.hdVci==='Colapsada'));
-  f.derrPeri=(!!S.c_derr_pel&&S.c_derr_pel!=='No')||(S.hd_peri==='Derrame / taponamiento');
+  /* La ventana SUBCOSTAL cuenta por sí sola. Antes sólo servía de confirmación del
+     paraesternal (`c_derr_pel!=='No' && c_derr_sub==='Sí'`), así que con el paraesternal en
+     «No» y el subcostal en «Sí» el derrame desaparecía del informe — y la subcostal es
+     justamente la ventana útil en el paciente ventilado y en el paro. */
+  /* Y `ab_peri` es la TERCERA copia: es la misma ventana subcostal, cargada desde la pestaña
+     del eFAST. Sin ella, un derrame marcado sólo ahí salía como «líquido libre pericárdico»
+     en la fila abdominal y la fila cardíaca no lo mencionaba. */
+  f.derrPeri=(!!S.c_derr_pel&&S.c_derr_pel!=='No')||(S.hd_peri==='Derrame / taponamiento')
+            ||(S.c_derr_sub==='Sí')||(S.ab_peri==='Derrame +');
   /* El selector de Hemodinámica dice «Derrame / taponamiento»: es por definición un derrame
      con compromiso hemodinámico. Pero eso hace que una sola marca encienda derrPeri y
      derrPeriSig juntos y baje el umbral de la rama de taponamiento, así que la discordancia
@@ -1373,7 +1398,9 @@ function usFlags(){
   f.feviTxt=(!!S.c_fevi&&S.c_fevi!=='Normal')?String(S.c_fevi).toLowerCase()
            :(f.hdContract==='Hipodinámica'?'hipodinámica, registrada en Hemodinámica':'');
   f.derrPeriTxt=(!!S.c_derr_pel&&S.c_derr_pel!=='No')?String(S.c_derr_pel).toLowerCase()
-               :(S.hd_peri==='Derrame / taponamiento'?'con compromiso hemodinámico, registrado en Hemodinámica':'');
+               :(S.hd_peri==='Derrame / taponamiento'?'con compromiso hemodinámico, registrado en Hemodinámica'
+               :(S.c_derr_sub==='Sí'?'visualizado en ventana subcostal'
+               :(S.ab_peri==='Derrame +'?'visualizado en la ventana pericárdica del eFAST':'')));
   var zk=['pu_asd','pu_aid','pu_pld','pu_asi','pu_aii','pu_pli'];
   f.nB=0;f.nCons=0;f.nDerr=0;f.nA=0;
   zk.forEach(function(k){var v=S[k];if(v==='Líneas B')f.nB++;else if(v==='Consolidación')f.nCons++;else if(v==='Derrame')f.nDerr++;else if(v)f.nA++;});
@@ -1522,6 +1549,10 @@ function usDescriptivos(){
   if(ren.length)out.push(['Renal',ren.join('; ')]);
   // Hepatobiliar
   var hb=[];
+  /* Tamaño hepático: era write-only. 165 mm es el corte habitual de hepatomegalia en el
+     lóbulo derecho por línea medioclavicular. */
+  var _hig=num(S.ab_hig_tam);
+  if(_hig>0)hb.push('lóbulo derecho '+fmt(_hig,0)+' mm'+(_hig>165?' — hepatomegalia':''));
   if(v('ab_hig_eco')&&v('ab_hig_eco')!=='Normal')hb.push('ecogenicidad hepática: '+v('ab_hig_eco').toLowerCase());
   if(v('ab_hig_les'))hb.push('lesiones focales: '+v('ab_hig_les'));
   if(v('ab_vb'))hb.push('colédoco '+v('ab_vb')+' mm');
@@ -1573,9 +1604,52 @@ function usInterpHallazgos(){
   if(f.slideAusente||f.puntoPulm)pp.push('Elementos sugestivos de neumotórax'+(f.puntoPulm?' (punto pulmonar presente)':''));
   if(f.nCons>0)pp.push('Elementos de condensación alveolar');
   if(f.derrPleu)pp.push('Derrame pleural'+((S.pu_derr_lado&&S.pu_derr_lado!=='No')?(' '+S.pu_derr_lado):''));
+  /* Deslizamiento pleural presente descarta neumotórax en esa ventana: también es un
+     resultado que hay que documentar, sobre todo tras una vía central o una toracocentesis. */
+  /* Se excluye también el punto pulmonar: es el hallazgo más específico de neumotórax, y
+     justamente coexiste con deslizamiento presente (el punto es la frontera). Sin este
+     guard, la misma línea decía «elementos sugestivos de neumotórax (punto pulmonar
+     presente); deslizamiento pleural presente — sin evidencia de neumotórax». */
+  if(!f.slideAusente&&!f.puntoPulm&&(S.pu_slide==='Presente'||S.hd_sliding==='Presente'))
+    pp.push('deslizamiento pleural presente — sin evidencia de neumotórax en la ventana evaluada');
   if(pp.length)out.push(['Pulmonar',pp.join('; ')]);
+  /* LOS NEGATIVOS TAMBIÉN SE DOCUMENTAN. usInterpHallazgos emitía sólo positivos por diseño,
+     pero en trauma «FAST negativo» y en sospecha de TEP «compresión venosa negativa» son
+     justamente el resultado que hay que dejar asentado: un informe sin esa frase no sirve
+     como documento. Sólo se escriben si las ventanas o los segmentos se EVALUARON — no haber
+     mirado no es lo mismo que haber mirado y no encontrar. */
+  var _fastVent=[['ab_morrison','Morrison'],['ab_espleno','esplenorrenal'],['ab_douglas','Douglas'],['ab_peri','pericárdico']]
+    .filter(function(v){return !!S[v[0]];});
   if(f.fastPos)out.push(['Abdominal / FAST','Líquido libre en: '+f.fastRecesos.join(', ')]);
+  /* «FAST negativo» es un término diagnóstico: quiere decir que se hizo el estudio y no
+     había. Con 1 de 4 ventanas no se hizo un FAST, y el titular es lo que lee el que recibe
+     al paciente en la guardia siguiente — la aclaración después del guion se lee como
+     detalle técnico. Por eso el titular está condicionado a haber completado el protocolo. */
+  else if(_fastVent.length)out.push(['Abdominal / FAST', _fastVent.length===4
+    ? ('FAST negativo — sin líquido libre en las 4 ventanas del protocolo ('+_fastVent.map(function(v){return v[1];}).join(', ')+').')
+    : ('FAST INCOMPLETO — sin líquido libre en '+(_fastVent.length===1?'la única ventana evaluada':'las '+_fastVent.length+' ventanas evaluadas')+' ('+_fastVent.map(function(v){return v[1];}).join(', ')+'), de 4 del protocolo. No descarta líquido libre.')]);
+  /* eFAST — tórax. `ab_torax` sólo lo leía buildConclusiones(), que está muerta: un
+     neumotórax o hemotórax marcado en el eFAST no llegaba a ningún informe. */
+  if(S.ab_torax==='Alterado')out.push(['eFAST — tórax','Tórax alterado en la ventana del eFAST — evaluar neumotórax / hemotórax.']);
+  else if(S.ab_torax==='Normal')out.push(['eFAST — tórax','Ventana torácica del eFAST sin alteraciones.']);
+
+  var _tvpSeg=[['va_fc','femoral común'],['va_fs','femoral superficial'],['va_pop','poplítea'],['va_tib','tibiales']]
+    .filter(function(v){return !!S[v[0]];});
   if(f.tvp.length)out.push(['Vascular','Trombosis venosa profunda — segmento(s) no compresible(s): '+f.tvp.join(', ')+(S.va_lado?(' ('+S.va_lado+')'):'')]);
+  else if(_tvpSeg.length){
+    /* El formulario tiene UN solo juego de cuatro segmentos. Con el lado en «Bilateral» el
+       negativo afirmaría haber descartado TVP en los dos miembros con cuatro puntos de
+       compresión, cuando el protocolo bilateral pide ocho. */
+    var _tvpLado=S.va_lado||'';
+    var _tvpBil=(_tvpLado==='Bilateral');
+    var _tvpSegs=_tvpSeg.map(function(v){return v[1];}).join(', ');
+    out.push(['Vascular', _tvpSeg.length===4
+      ? ('Sin evidencia de trombosis venosa profunda en los 4 segmentos del protocolo ('+_tvpSegs+')'
+         +(_tvpBil?'. Se registró lado «Bilateral» pero sólo hay un juego de segmentos cargado: el descarte bilateral requiere 8 puntos de compresión.'
+                  :(_tvpLado?', miembro '+_tvpLado.toLowerCase()+'.':'.')))
+      : ('COMPRESIÓN VENOSA INCOMPLETA — '+_tvpSeg.length+' de 4 segmentos '+(_tvpSeg.length===1?'compresible':'compresibles')+' ('+_tvpSegs+')'
+         +(_tvpLado&&!_tvpBil?', miembro '+_tvpLado.toLowerCase():'')+'. No descarta trombosis venosa profunda.')]);
+  }
   /* FUNCIÓN DEL VD. `c_fvd` sólo aparecía en un texto de pantalla: una función ventricular
      derecha reducida —el hallazgo que orienta a TEP o a falla derecha— no llegaba al PDF. */
   /* El tamaño se cita tal cual («VD dilatado», «VD/VI >1»): pasarlo a minúscula dejaba
@@ -1613,6 +1687,87 @@ function usInterpHallazgos(){
         :(_pv!=null&&_pv<0.09?' con velocidad de contracción '+fmt(_pv,2)+' cm/s (< 0,09: respuesta lenta)':'')));
   }
   if(np.length)out.push(['Neuro',np.join('; ')]);
+
+  /* FUNCIÓN DIASTÓLICA. E/A, E/e' y TDA se cargaban y sólo alimentaban el dominio cardíaco
+     del semáforo de weaning: no producían ningún hallazgo cardíaco propio. Un E/e' de 18
+     —presiones de llenado elevadas— no salía en el informe salvo que hubiera weaning. */
+  var _ea=num(S.c_ea), _tda=num(S.c_tda);
+  var dp=[];
+  /* El corte de 14 es el del PROMEDIO (ASE/EACVI). Septal y lateral tienen los suyos (~15 y
+     ~13), así que usar un solo componente como si fuera el promedio clasificaba mal en los
+     dos sentidos. Con un solo valor se informa el número y de dónde sale, sin emitir el
+     juicio de «elevadas/normales». */
+  var _eeP=num(S.c_ee), _es=num(S.c_ee_sep), _el=num(S.c_ee_lat);
+  if(_eeP==null&&_es!=null&&_el!=null)_eeP=(_es+_el)/2;
+  if(_eeP!=null){
+    dp.push("E/e' promedio "+fmt(_eeP,1)+(_eeP>14?' — presiones de llenado del VI elevadas'
+      :_eeP<8?' — presiones de llenado normales':' — zona indeterminada (8-14)'));
+  } else if(_es!=null||_el!=null){
+    dp.push("E/e' "+(_es!=null?'septal '+fmt(_es,1):'lateral '+fmt(_el,1))
+      +' — un solo componente cargado; el corte de 14 corresponde al promedio de septal y lateral, no se emite juicio con uno solo');
+  }
+  if(_ea!=null)dp.push('E/A '+fmt(_ea,2)+(_ea>2?' — patrón restrictivo':_ea<0.8?' — alteración de la relajación':''));
+  if(_tda!=null)dp.push('TDA '+fmt(_tda,0)+' ms'+(_tda<150?' — acortado, sugiere presiones elevadas':''));
+  if(dp.length)out.push(['Función diastólica',dp.join('; ')+'.']);
+
+  /* VARIACIÓN RESPIRATORIA DEL VTI. Predictor de respuesta a fluidos: se calculaba en
+     pantalla en dos tarjetas distintas y no llegaba al informe en ninguna de las dos. */
+  /* Las dos tarjetas (Cardíaco y Hemodinámica) son registro del paciente. Quedarse con la
+     primera y descartar la otra en silencio podía firmar «8% — poco probable que responda a
+     volumen» callando un 22% que la otra pantalla mostraba como respondedor, y eso decide si
+     el paciente recibe volumen. Se informa la discrepancia, igual que con el gasto cardíaco. */
+  var _dv=[];
+  [['c_vti_esp','c_vti_insp','Cardíaco'],['h_vti_esp','h_vti_insp','Hemodinámica']].forEach(function(par){
+    var e=num(S[par[0]]),i=num(S[par[1]]);
+    if(e>0&&i>0)_dv.push({src:par[2], d:(Math.max(e,i)-Math.min(e,i))/((e+i)/2)*100});
+  });
+  if(_dv.length){
+    var _d0=_dv[0].d;
+    out.push(['Respuesta a fluidos','Variación respiratoria del VTI '+fmt(_d0,0)+'% ('+_dv[0].src+') — '
+      +(_d0>12?'sugiere precarga-dependencia (respondedor probable a volumen).'
+             :'poco probable que responda a volumen.')]);
+    var _dOtro=_dv.slice(1).filter(function(x){return Math.abs(x.d-_d0)>3||((x.d>12)!==(_d0>12));});
+    if(_dOtro.length)out.push(['Revisar','La variación respiratoria del VTI fue cargada en dos pestañas con valores distintos: '
+      +fmt(_d0,0)+'% ('+_dv[0].src+') y '+_dOtro.map(function(x){return fmt(x.d,0)+'% ('+x.src+')';}).join(', ')
+      +'. Verificar cuál corresponde.']);
+  }
+
+  /* NÚMEROS DEL MODO AVANZADO CON SU INTERPRETACIÓN. El bloque «Modo avanzado (cardíaco)»
+     del PDF los imprime como cifras sueltas: un TAPSE de 13 mm o una FEVI Simpson de 33%
+     salían sin que el informe dijera en ningún lado que son anormales. */
+  /* Se imprime con UN DECIMAL y se compara SIN redondear. fmt() hace Math.round, así que
+     comparando el valor crudo e imprimiendo el redondeado salían frases que se contradicen
+     solas: «TAPSE 17 mm — por debajo del corte de normalidad (17 mm)» con un TAPSE de 16,6.
+     Y cota de plausibilidad, como ya la tienen vejiga, aorta y gasto cardíaco: el error real
+     acá es cargar el FAC como fracción (0,35 en vez de 35). */
+  var ap=[], apRev=[];
+  var _cuant=function(val,lo,hi,nombre,fmtTxt){
+    if(val==null)return;
+    if(val<lo||val>hi){ apRev.push(nombre+' '+fmt(val,1)+' fuera de rango plausible ('+lo+'-'+hi+')'); return; }
+    ap.push(fmtTxt(val));
+  };
+  var _gcQ=usGC();
+  if(_gcQ!=null&&_gcQ>=1&&_gcQ<=15)ap.push('Gasto cardíaco '+fmt(_gcQ,2)+' L/min'+(_gcQ<4?' — bajo (< 4)':_gcQ>8?' — elevado (> 8)':' — dentro de rango'));
+  var _edv=num(S.c_edv),_esv=num(S.c_esv);
+  if(_edv>0&&_esv>0&&_edv>_esv){
+    var _fev=(_edv-_esv)/_edv*100;
+    ap.push('FEVI por Simpson '+fmt(_fev,1)+'%'+(_fev<30?' — severamente reducida':_fev<40?' — moderadamente reducida':_fev<50?' — levemente reducida':' — conservada'));
+  }
+  _cuant(num(S.c_tapse),3,40,'TAPSE',function(v){return 'TAPSE '+fmt(v,1)+' mm'+(v<17?' — por debajo del corte de normalidad (17 mm), disfunción sistólica del VD':'');});
+  _cuant(num(S.c_fac),5,80,'FAC',function(v){return 'FAC '+fmt(v,1)+'%'+(v<35?' — reducido (< 35%), disfunción sistólica del VD':'');});
+  _cuant(num(S.c_sp),1,30,"S' lateral",function(v){return "S' lateral "+fmt(v,1)+' cm/s'+(v<9.5?' — reducida (< 9,5 cm/s)':'');});
+  var _vit=num(S.c_vit);
+  if(_vit!=null&&_vit>0&&_vit<8){
+    /* La PAD por defecto es 5 mmHg, igual que la pantalla (línea del cálculo de PSAP): con 0
+       el PDF decía «PSAP 31 mmHg» mientras la pantalla mostraba «36 mmHg (HTP)» sobre el
+       mismo dato. El umbral también se alinea en >=35. Y se aclara de dónde sale la PAD,
+       porque cambia el resultado en 10 mmHg. */
+    var _padUsada=num(S.c_pad); var _padTxt=(_padUsada!=null)?(' con PAD '+_padUsada+' mmHg'):' con PAD asumida 5 mmHg';
+    var _psap=4*_vit*_vit+(_padUsada!=null?_padUsada:5);
+    ap.push('PSAP estimada '+fmt(_psap,0)+' mmHg'+_padTxt+(_psap>=35?' — elevada (≥ 35 mmHg)':''));
+  } else if(_vit!=null) apRev.push('Vmax IT '+fmt(_vit,2)+' m/s fuera de rango plausible (0-8)');
+  if(ap.length)out.push(['Cardíaco — cuantitativo',ap.join('; ')+'.']);
+  if(apRev.length)out.push(['Revisar','Cardíaco — '+apRev.join('; ')+'. Verificar las unidades.']);
 
   /* AORTA ABDOMINAL. Se interpretaba en pantalla (#ab_ao_int) y no llegaba al PDF: un
      aneurisma de 60 mm medido salía del informe como si no se hubiera mirado. */
@@ -1774,9 +1929,53 @@ function usMotorConclusion(){
 /* =====================================================================
    PDF (jsPDF)
    ===================================================================== */
+/* ── Saneador WinAnsi para el PDF ──────────────────────────────────────────────
+   jsPDF con las fuentes standard-14 (helvetica) codifica WinAnsi. Ante UN carácter
+   fuera de ese juego, cambia la CADENA ENTERA a UTF-16 y el carácter ofensor sale como
+   basura: verificado con «Aneurisma de aorta abdominal — diámetro máximo 62 mm (≥ 30 mm)»,
+   que por el ≥ se emitía como \u0000A\u0000n\u0000e… y con el ≥ convertido en «\("e».
+   O sea: el hallazgo más grave del informe salía ilegible.
+
+   Se sanea en el ÚNICO punto por donde salen todos los textos —envolviendo doc.text y
+   doc.splitTextToSize— en vez de cazar los símbolos uno por uno. Ya había pasado antes con
+   el ⚠, se arregló puntualmente y volvió a aparecer con el ≥: una denylist de dos símbolos
+   al lado de decenas de emojis es una trampa. Esto es la lista blanca. */
+var PDF_MAPA={'≥':'>=','≤':'<=','≈':'~','→':'->','←':'<-','↑':'^','↓':'v','↻':'',
+  'Δ':'delta ','−':'-','π':'pi','⁻':'-','⁵':'5','₂':'2','✓':'OK','✗':'x','✕':'x',
+  '·':'\u00B7','—':'\u2014','–':'\u2013'};
+function pdfSano(v){
+  var t=String(v==null?'':v);
+  var out='';
+  for(var i=0;i<t.length;i++){
+    var ch=t[i], cp=t.codePointAt(i);
+    if(cp>0xFFFF){ i++; continue; }                    // emojis y pares suplentes: se quitan
+    if(PDF_MAPA[ch]!==undefined){ out+=PDF_MAPA[ch]; continue; }
+    if(cp<0x100){ out+=ch; continue; }                 // latin-1: lo codifica WinAnsi
+    if('\u20AC\u201A\u0192\u201E\u2026\u2020\u2021\u02C6\u2030\u0160\u2039\u0152\u017D\u2018\u2019\u201C\u201D\u2022\u2013\u2014\u02DC\u2122\u0161\u203A\u0153\u017E\u0178'.indexOf(ch)>=0){ out+=ch; continue; }
+    /* Todo lo demás (emojis BMP, flechas raras, cajas) se descarta: es preferible perder un
+       adorno a que la línea entera cambie de codificación. */
+  }
+  return out.replace(/\s{2,}/g,' ').trim();
+}
+/* Envuelve una instancia de jsPDF para que nada llegue sin sanear. splitTextToSize también,
+   porque calcula el ancho con la cadena original y se llama ANTES de doc.text. */
+function pdfBlindar(doc){
+  var _t=doc.text.bind(doc), _s=doc.splitTextToSize.bind(doc);
+  doc.text=function(txt){
+    var a=Array.prototype.slice.call(arguments);
+    a[0]=Array.isArray(txt)?txt.map(pdfSano):pdfSano(txt);
+    return _t.apply(doc,a);
+  };
+  doc.splitTextToSize=function(txt){
+    var a=Array.prototype.slice.call(arguments);
+    a[0]=pdfSano(txt);
+    return _s.apply(doc,a);
+  };
+  return doc;
+}
 function generarPDF(){
   if(!window.jspdf){toast('PDF no disponible');return;}
-  var jsPDF=window.jspdf.jsPDF;var doc=new jsPDF({unit:'mm',format:'a4'});
+  var jsPDF=window.jspdf.jsPDF;var doc=pdfBlindar(new jsPDF({unit:'mm',format:'a4'}));
   var W=210,y=14;
   // animated-style US wave header band
   doc.setFillColor(13,148,136);doc.rect(0,0,W,26,'F');
@@ -1788,7 +1987,10 @@ function generarPDF(){
   for(var i=0;i<=70;i++){var xx=px+i;var yy=base+Math.sin(i/4)*4*(1-i/140);if(prev)doc.line(prev[0],prev[1],xx,yy);prev=[xx,yy];}
   y=34;doc.setTextColor(30,30,30);
   function line(l,v,bold){doc.setFont('helvetica',bold?'bold':'normal');doc.setFontSize(10);doc.setTextColor(90,90,90);doc.text(l,14,y);doc.setTextColor(20,20,20);doc.text(String(v||'—'),60,y);y+=6;}
-  function head(t){y+=2;doc.setFillColor(238,242,246);doc.rect(12,y-4,W-24,7,'F');doc.setFont('helvetica','bold');doc.setFontSize(11);doc.setTextColor(13,148,136);doc.text(t,14,y+1);y+=8;doc.setTextColor(20,20,20);}
+  /* Guard de página: sin esto, después de un bloque largo (por ejemplo las observaciones
+     clínicas) `y` podía quedar en ~296 y el título se dibujaba fuera del A4, así que los
+     hallazgos aparecían sin encabezado de sección, pegados al texto libre del médico. */
+  function head(t){if(y>258){doc.addPage();y=20;}y+=2;doc.setFillColor(238,242,246);doc.rect(12,y-4,W-24,7,'F');doc.setFont('helvetica','bold');doc.setFontSize(11);doc.setTextColor(13,148,136);doc.text(t,14,y+1);y+=8;doc.setTextColor(20,20,20);}
   // CAMBIO 2 — Datos del paciente: tabla compacta 3x2 con fecha arriba a la derecha
   var med=localStorage.getItem(MEDKEY)||S.cfg_med||'';
   y+=2;doc.setFillColor(238,242,246);doc.rect(12,y-4,W-24,7,'F');
@@ -1800,7 +2002,44 @@ function generarPDF(){
   function pcell(cx,ry,label,val){doc.setFont('helvetica','bold');doc.setFontSize(9.5);doc.setTextColor(90,90,90);var lb=label+': ';doc.text(lb,cx,ry);var lw=doc.getTextWidth(lb);doc.setFont('helvetica','normal');doc.setTextColor(20,20,20);doc.text(String(val||'—'),cx+lw,ry);}
   pcell(cX[0],y,'Nombre',S.p_nombre);pcell(cX[1],y,'Documento',S.p_doc);y+=6;
   pcell(cX[0],y,'Edad / Sexo',(S.p_edad||'—')+' / '+(S.p_sexo||'—'));pcell(cX[1],y,'Médico',med);y+=6;
-  pcell(cX[0],y,'Indicación',S.p_indic);y+=8;
+  /* Peso, talla, IMC y médico solicitante se cargaban y NO se imprimían. El peso y la talla
+     además alimentan la superficie corporal, que es el denominador de los índices
+     indexados: si el informe lleva un índice cardíaco, tiene que llevar de dónde sale.
+     Sólo se emite la fila si hay algo que poner. */
+  var _pe=num(S.p_peso),_ta=num(S.p_talla);
+  var _antro=[];
+  if(_pe>0)_antro.push(_pe+' kg');
+  if(_ta>0)_antro.push(_ta+' cm');
+  /* Cota de plausibilidad: el campo dice «Talla (cm)» pero acepta «1,75», que da un IMC de
+     228.571 impreso en el encabezado del informe firmado. */
+  if(_pe>0&&_ta>0){ var _imc=_pe/Math.pow(_ta/100,2);
+    _antro.push(_imc>=8&&_imc<=100 ? ('IMC '+fmt(_imc,1)+' kg/m²')
+                                   : 'IMC no calculable (verificar que la talla esté en cm)'); }
+  if(_antro.length||S.p_solic){
+    if(_antro.length)pcell(cX[0],y,'Peso / Talla',_antro.join(' · '));
+    if(S.p_solic)pcell(cX[1],y,'Solicitante',S.p_solic);
+    y+=6;
+  }
+  /* Texto libre largo: se parte por página en vez de moverse entero. `p_indic` y `p_obs` son
+     textareas sin maxlength, así que aceptan saltos de línea y evoluciones enteras pegadas.
+     pcell() dibuja con doc.text() sin splitTextToSize y sólo avanza 6 mm, de modo que una
+     indicación de tres renglones se pintaba ENCIMA del bloque siguiente. */
+  function bloqueTexto(rot,val){
+    var t=String(val||'').trim(); if(!t)return;
+    var lineas=doc.splitTextToSize(t,W-28);
+    if(y+9>272){doc.addPage();y=20;}                    // el rótulo nunca queda huérfano
+    doc.setFont('helvetica','bold');doc.setFontSize(9.5);doc.setTextColor(90,90,90);
+    doc.text(rot+':',cX[0],y);y+=5;
+    doc.setFont('helvetica','normal');doc.setTextColor(20,20,20);
+    lineas.forEach(function(ln){
+      if(y>272){doc.addPage();y=20;}                    // se PARTE, no se recorta en silencio
+      doc.text(ln,cX[0],y);y+=4.6;
+    });
+    y+=1;
+  }
+  bloqueTexto('Indicación',S.p_indic);
+  bloqueTexto('Observaciones clínicas',S.p_obs);
+  y+=2;
   // CAMBIO 4 — Hallazgos por módulo: solo positivos e interpretativos
   head('Hallazgos por módulo');
   var lines=usInterpHallazgos();
@@ -1813,6 +2052,12 @@ function generarPDF(){
                 'Renal':'abdominal','Hepatobiliar':'abdominal','Ascitis':'abdominal','Vejiga':'abdominal',
                 'Vascular — otros':'vascular','Cardíaco — biometría':'cardiaco',
                 'VEXUS':'vascular','Ventrículo derecho':'cardiaco',
+                'Función diastólica':'cardiaco','Cardíaco — cuantitativo':'cardiaco',
+                'Respuesta a fluidos':'cardiaco',
+                /* Se mapea a `pulmonar` y no a `abdominal`: el campo vive en la pestaña del
+                   eFAST, pero quien lee el informe busca el neumotórax en la sección
+                   pulmonar, y tildando sólo «Incluir Pulmonar» se perdía. */
+                'eFAST — tórax':'pulmonar',
                 'Aorta abdominal':'abdominal','Índice tobillo-brazo':'vascular',
                 /* La casilla «Incluir Weaning» existía y no gateaba nada: ahora gatea la
                    fila que efectivamente se emite. */
@@ -1864,18 +2109,14 @@ function generarPDF(){
       _hdr.forEach(function(r){doc.setFont('helvetica','bold');doc.setTextColor(3,105,161);doc.text(r[0]+':',14,y);doc.setFont('helvetica','normal');doc.setTextColor(30,30,30);var w=doc.splitTextToSize(String(r[1]),120);doc.text(w,60,y);y+=Math.max(6,w.length*4.6);if(y>250){doc.addPage();y=20;}});
       doc.setFont('helvetica','italic');doc.setFontSize(7.5);doc.setTextColor(120,120,120);doc.text('Orientativo — no reemplaza el juicio clínico.',14,y);y+=6;doc.setTextColor(30,30,30);}
   }
-  (function(){
-    var adv=[];var _edv=num(S.c_edv),_esv=num(S.c_esv);
-    if(_edv&&_esv&&_edv>_esv)adv.push(['FEVI Simpson',fmt((_edv-_esv)/_edv*100,0)+' %']);
-    var g=usGC();if(g!=null)adv.push(['Gasto cardíaco',fmt(g,2)+' L/min']);
-    if(num(S.c_tapse)!=null)adv.push(['TAPSE',S.c_tapse+' mm']);
-    if(num(S.c_sp)!=null)adv.push(["S' lateral",S.c_sp+' cm/s']);
-    if(num(S.c_fac)!=null)adv.push(['FAC',S.c_fac+' %']);
-    if(num(S.c_vit)!=null)adv.push(['PSAP estimada',fmt(4*num(S.c_vit)*num(S.c_vit)+(num(S.c_pad)||0),0)+' mmHg']);
-    if(num(S.c_ee)!=null)adv.push(["E/e' promedio",String(S.c_ee)]);
-    if(adv.length){head('Modo avanzado (cardíaco)');doc.setFontSize(9.5);
-      adv.forEach(function(r){doc.setFont('helvetica','bold');doc.setTextColor(3,105,161);doc.text(r[0]+':',14,y);doc.setFont('helvetica','normal');doc.setTextColor(30,30,30);doc.text(String(r[1]),72,y);y+=6;if(y>250){doc.addPage();y=20;}});}
-  })();
+  /* El bloque «Modo avanzado (cardíaco)» se retiró. Imprimía FEVI Simpson, TAPSE, S', FAC,
+     PSAP y E/e' como cifras sueltas sin decir si eran anormales, y desde que esos mismos
+     valores se emiten interpretados en las filas «Cardíaco — cuantitativo» y «Función
+     diastólica», el mismo PDF llevaba cada número DOS VECES y con distinto redondeo: con
+     c_tapse=16.6 decía «TAPSE 17 mm — por debajo del corte» arriba y «TAPSE: 16.6 mm» abajo.
+     Además este bloque no pasaba por INCL_MAP, así que destildar «Incluir Cardíaco» borraba
+     la interpretación y dejaba las cifras desnudas. El gasto cardíaco, que era lo único que
+     no estaba duplicado, se movió a la fila interpretada. */
   if(typeof protoReportData==='function'){
     var _pr=protoReportData();
     if(_pr.length){head('Protocolos ecográficos (RUSH / FALLS / BLUE / FAST)');
@@ -1978,7 +2219,7 @@ function renderLabTab(t){var d=window._labData;var b=$('labTabBody');if(!b)retur
 function labPDF(){var d=window._labData;
   /* Mismo aviso que generarPDF: si el integrity descartó el script, el botón parecía roto
      sin explicación — que es exactamente el modo de falla silencioso del SRI. */
-  if(!window.jspdf){toast('PDF no disponible: no se pudo cargar la librería');return;}var doc=new window.jspdf.jsPDF({unit:'mm',format:'a4'});
+  if(!window.jspdf){toast('PDF no disponible: no se pudo cargar la librería');return;}var doc=pdfBlindar(new window.jspdf.jsPDF({unit:'mm',format:'a4'}));
   doc.setFillColor(13,148,136);doc.rect(0,0,210,22,'F');doc.setTextColor(255,255,255);doc.setFont('helvetica','bold');doc.setFontSize(16);doc.text('UltraSmart · Laboratorio',14,14);
   var y=34;doc.setTextColor(20,20,20);doc.setFontSize(11);
   var rows=[['Estudios guardados',d.arr.length],['Con conclusión',d.withConcl],['Con imágenes',d.withImg],['PDF generados',d.lab.pdf||0],['Quiz respondidos',d.lab.quiz||0]];
@@ -2158,9 +2399,10 @@ TAB.hemodinamia=function(){
     segf('hd_tvp','TVP',['No','Presente'])+
     segf('hd_sliding','Lung sliding',['Presente','Ausente'])+'</div>'+
     '<div id="hd_dx" style="margin-top:14px;padding:14px;border:1px solid var(--teal);border-radius:12px;background:linear-gradient(135deg,rgba(13,148,136,.10),rgba(3,105,161,.06))"></div>');
-  var pdf='<div style="margin-top:20px;padding:12px 14px;background:var(--head);border:1px dashed var(--border);border-radius:9px;display:flex;align-items:center;gap:10px">'+
-    '<input type="checkbox" id="incl-hemodinamia"'+(S['incl-hemodinamia']==='1'?' checked':'')+' onchange="setK(\'incl-hemodinamia\',this.checked?\'1\':\'\')" style="width:16px;height:16px;accent-color:var(--teal)">'+
-    '<label for="incl-hemodinamia" style="font-size:12.5px;color:var(--text2);cursor:pointer">Incluir <b style="color:var(--text)">Valoración Hemodinámica</b> en el informe PDF</label></div>';
+  /* La casilla de inclusión la renderiza ahora inclToggle() desde renderTab(), porque
+     `hemodinamia` se agregó a INCL_TABS. Dejar también esta duplicaba el id
+     `incl-hemodinamia` en el DOM y el <label for> apuntaba a una de las dos al azar. */
+  var pdf='';
   var s5=card('💉 Hemodinámico completo',
     '<div class="grid4">'+inp('h_dtsvi','Diámetro TSVI (cm)','','number')+inp('h_vti','VTI (cm)','','number')+inp('h_fc','FC (lpm)','','number')+inp('h_pam','PAM (mmHg)','','number')+'</div>'+
     '<div class="grid3" style="margin-top:8px">'+inp('h_sc','Sup. corporal (m²)','','number')+inp('h_pvc','PVC (mmHg)','','number')+inp('h_pad','PAD (mmHg)','','number')+'</div>'+
