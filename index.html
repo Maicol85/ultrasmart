@@ -3,8 +3,27 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- CSP. Alcance honesto: NO protege de XSS. La app está construida sobre 90 manejadores
+     inline (onclick=…) y 192 atributos style=…, así que 'unsafe-inline' es obligatorio en
+     script-src y style-src; sin él la app no arranca. Lo que sí hace es acotar el origen de
+     los scripts a cdnjs, impedir <object>/<embed>, fijar <base> y bloquear el envío de
+     formularios a cualquier lado. Combinada con el integrity de abajo, eso cubre el vector
+     realista acá: que el CDN sirva otra cosa.
+     img-src necesita data: porque las ecografías se cargan con FileReader.readAsDataURL y
+     se recomprimen con canvas.toDataURL antes de ir a IndexedDB.
+     frame-ancestors NO se incluye a propósito: se ignora en <meta> y GitHub Pages no manda
+     cabeceras, así que ponerlo daría una falsa sensación de protección contra clickjacking. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <title>UltraSmart · Ultrasonido Point-of-Care</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<!-- integrity: hash SHA-512 que publica cdnjs para este archivo, verificado además con
+     `openssl dgst -sha512` sobre el archivo descargado (364.463 bytes) — los dos coinciden.
+     Se usa SHA-512 y no SHA-384 porque es el algoritmo que cdnjs publica; degradarlo no
+     aporta nada. Si algún día se sube la versión de jsPDF hay que regenerar este hash: si
+     queda viejo el navegador descarta el script EN SILENCIO, la app arranca completa y la
+     falta recién aparece al exportar el PDF, con un error que parece de conexión. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"
+        integrity="sha512-qZvrmS2ekKPF2mSznTQsxqPgnpkI4DNTlrdUmTzrDgektczlKNRRhy5X5AAOnx5S09ydFYWWNSfcEqDTTHgtNA=="
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <style>
   :root{
     --teal:#0D9488; --teal2:#0f766e; --teal3:#14b8a6;
@@ -499,7 +518,14 @@ TAB.abdominal=function(){
     '<div class="subhead">Aorta abdominal (3 niveles)</div><div class="grid3">'+inp('ab_ao_sup','Suprarrenal (mm)','','number')+inp('ab_ao_med','Infrarrenal medio (mm)','','number')+inp('ab_ao_inf','Distal/bifurc. (mm)','','number')+'</div>'+
     '<div class="grid2" style="margin-top:8px"><div><label class="fl">Interpretación aorta</label><div class="in" id="ab_ao_int" style="background:var(--bg2)">—</div></div>'+segf('ab_ascitis','Ascitis',['Ausente','Escasa','Moderada','Abundante'])+'</div>'+
     '</div></div>';
-  return fast+eco;
+  var vej=card('🫗 Vejiga — volumen vesical',
+    '<div class="grid3">'+inp('ab_vej_ap','Anteroposterior (mm)','','number')+inp('ab_vej_tr','Transverso (mm)','','number')+inp('ab_vej_lo','Longitudinal (mm)','','number')+'</div>'+
+    '<div class="grid2" style="margin-top:8px"><div><label class="fl">Volumen estimado</label><div class="in" id="ab_vej_vol" style="background:var(--bg2)">—</div></div>'+
+    segf('ab_vej_ctx','Momento de la medición',['Premiccional','Residuo post-miccional'])+'</div>'+
+    '<div class="concl" id="ab_vej_int" style="margin-top:12px"></div>'+
+    '<div class="hint">Elipsoide: V (ml) = 0,52 × AP × T × L, con los tres diámetros en cm. '+
+    'Los campos van en <b>milímetros</b>, así que se dividen por 10 antes de aplicar la fórmula.</div>');
+  return fast+eco+vej;
 };
 
 TAB.vascular=function(){
@@ -701,6 +727,22 @@ function recompute(){
     dc.innerHTML=msgs.length?msgs.join('<br>'):'Complete velocidades para interpretar.';
   }
 
+  /* VEJIGA — volumen por elipsoide */
+  {
+    var vap=num(S.ab_vej_ap),vtr=num(S.ab_vej_tr),vlo=num(S.ab_vej_lo);
+    var vint=$('ab_vej_int');
+    var vol=usVejigaVol();
+    setTxt('ab_vej_vol',(vol!=null&&!isNaN(vol))?fmt(vol,0)+' ml':'—');
+    if(vint){
+      var av=usVejigaAviso(vol);
+      if(vol==null)vint.innerHTML='Complete los tres diámetros para estimar el volumen.';
+      else if(av)vint.innerHTML='<b style="color:var(--amber,#f59e42)">⚠ '+escHtml(av)+'</b>';
+      else{
+        var iv=usVejigaInterp(vol,S.ab_vej_ctx);
+        vint.innerHTML='<b>'+fmt(vol,0)+' ml</b> — '+escHtml(iv.txt);
+      }
+    }
+  }
   /* HEMODINAMICO completo */
   var hd=num(S.h_dtsvi),hvti=num(S.h_vti),hfc=num(S.h_fc),hsc=num(S.h_sc),hpam=num(S.h_pam),hpvc=num(S.h_pvc);
   var hvs=(hd&&hvti)?0.785*hd*hd*hvti:null;setTxt('h_vs',hvs?fmt(hvs,1)+' ml':'—');
@@ -1031,11 +1073,119 @@ function guardarEstudio(){
   }
 }
 window.guardarEstudio=guardarEstudio;
+/* Qué módulos se usaron en un estudio, deducido de las claves que tiene guardadas. No hay
+   un campo «protocolo» en el registro, así que se infiere del prefijo: es lo único que
+   existe y no obliga a migrar los estudios ya guardados. */
+var GUA_MODULOS=[
+  {k:'cardiaco',   lbl:'Cardíaco',    re:/^c_/},
+  {k:'pulmonar',   lbl:'Pulmonar',    re:/^pu_/},
+  {k:'abdominal',  lbl:'Abdominal',   re:/^ab_/},
+  {k:'vascular',   lbl:'Vascular',    re:/^va_/},
+  {k:'vexus',      lbl:'VEXUS',       re:/^vx_/},
+  {k:'hemodinamia',lbl:'Hemodinámica',re:/^(hd_|h_)/},
+  {k:'neuro',      lbl:'Neuro',       re:/^nr_/},
+  {k:'weaning',    lbl:'Weaning',     re:/^wn_/},
+  /* `para_` con la a: el regex anterior pedía `par_` y no matcheaba ninguna paracentesis.
+     `proc_` y `chk_` son el sitio y los checklists, que es como queda registrada una
+     traqueostomía guiada si sólo se tildó la lista. */
+  {k:'procedim',   lbl:'Procedim.',   re:/^(vvc_|para_|tor_|art_|trq_|proc_|chk_)/},
+  /* Tabs retirados de la navegación pero cuyas claves siguen en estudios viejos. Sin esto
+     un estudio con el DVNO medido en la vieja pestaña Ocular aparecía sin un solo chip
+     —como si estuviera vacío— y quedaba fuera de todos los filtros, incluido Neuro. */
+  {k:'legacy',     lbl:'Módulo retirado', re:/^(oc_|dtc_)/}
+];
+function guaModulos(e){
+  var d=(e&&e.data)||{};
+  var ks=Object.keys(d).filter(function(k){ var v=d[k]; return v!==''&&v!=null&&!/^(cfg_|incl-)/.test(k); });
+  return GUA_MODULOS.filter(function(m){ return ks.some(function(k){return m.re.test(k);}); });
+}
+var GUA_F={q:'',mod:'',abiertos:{}};
+/* renderTop() reescribe el innerHTML y hace scrollTo(0,0): el <input> se destruye y se
+   recrea, así que sin esto el buscador perdía el foco a cada pausa de tipeo —y con el
+   debounce de 350 ms las letras siguientes no entraban en ningún lado— y desplegar un mes
+   saltaba al tope, que es lo contrario de para qué existe el acordeón. */
+function guaRerender(mantenerFoco){
+  var y=window.scrollY, el=document.getElementById('gua-q');
+  var pos=(el&&el.selectionStart!=null)?el.selectionStart:null;
+  topTab('guardados');
+  window.scrollTo(0,y);
+  if(mantenerFoco){
+    var n=document.getElementById('gua-q');
+    if(n){ n.focus(); if(pos!=null){ try{ n.setSelectionRange(pos,pos); }catch(e){} } }
+  }
+}
+window.guaSet=function(campo,val){ GUA_F[campo]=val; guaRerender(campo==='q'); };
+window.guaMes=function(mes){ GUA_F.abiertos[mes]=!GUA_F.abiertos[mes]; guaRerender(false); };
+
 TOP.guardados=function(){
   var arr=getEstudios();
-  var h='<div class="card"><div class="card-h">💾 Estudios guardados ('+arr.length+')</div><div class="card-b">';
-  if(!arr.length){h+='<div class="hint">Aún no guardaste estudios. Usá el botón 💾 Guardar.</div>';}
-  else{h+=arr.map(function(e){return '<div class="saved-item"><div><b>'+escHtml(e.nombre)+'</b><div class="meta">'+escHtml(e.doc||'—')+' · '+escHtml(e.fecha||new Date(e.ts).toLocaleDateString())+'</div></div><div style="display:flex;gap:6px"><button class="btn btn-ghost btn-sm" onclick="cargarEstudio(\''+e.id+'\')">Abrir</button><button class="btn btn-danger btn-sm" onclick="borrarEstudio(\''+e.id+'\')">✕</button></div></div>';}).join('');}
+  var total=arr.length;
+  var q=(GUA_F.q||'').trim().toLowerCase();
+  var filt=arr.filter(function(e){
+    if(GUA_F.mod&&!guaModulos(e).some(function(m){return m.k===GUA_F.mod;}))return false;
+    if(q){ var t=((e.nombre||'')+' '+(e.doc||'')).toLowerCase(); if(t.indexOf(q)<0)return false; }
+    return true;
+  });
+  /* Acordeón por mes. Se agrupa por la fecha del ESTUDIO cuando existe y por la de guardado
+     cuando no: ordenar por «cuándo lo guardé» pone en el mes equivocado el estudio que se
+     cargó tarde. */
+  var MESES=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  var grupos={},orden=[];
+  filt.forEach(function(e){
+    var d=null;
+    if(e.fecha&&/^\d{4}-\d{2}/.test(e.fecha)) d={a:+e.fecha.slice(0,4), m:+e.fecha.slice(5,7)-1};
+    else { var dt=new Date(e.ts); d={a:dt.getFullYear(), m:dt.getMonth()}; }
+    var key=d.a+'-'+String(d.m+1).padStart(2,'0');
+    if(!grupos[key]){grupos[key]={lbl:MESES[d.m]+' '+d.a, items:[]};orden.push(key);}
+    grupos[key].items.push(e);
+  });
+  orden.sort().reverse();
+  /* El mes más reciente arranca abierto; el resto plegado. Con la lista plana anterior, una
+     base de cien estudios era una pared. */
+  if(orden.length&&GUA_F.abiertos[orden[0]]===undefined)GUA_F.abiertos[orden[0]]=true;
+
+  var chips=[{k:'',lbl:'Todos'}].concat(GUA_MODULOS.map(function(m){return {k:m.k,lbl:m.lbl};}))
+    .map(function(c){
+      var n=(c.k==='')?total:arr.filter(function(e){return guaModulos(e).some(function(m){return m.k===c.k;});}).length;
+      if(c.k!==''&&n===0)return '';
+      return '<button class="btn btn-sm '+(GUA_F.mod===c.k?'btn-teal':'btn-ghost')+'" style="padding:5px 10px;font-size:11.5px"'+
+        ' onclick="guaSet(\'mod\',\''+c.k+'\')">'+escHtml(c.lbl)+' ('+n+')</button>';
+    }).join('');
+
+  var h='<div class="card"><div class="card-h">💾 Estudios guardados</div><div class="card-b">'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">'
+    +'<input class="in" id="gua-q" placeholder="Buscar por nombre o documento…" value="'+escHtml(GUA_F.q)+'" '
+    +'oninput="clearTimeout(window.__guaT);window.__guaT=setTimeout(function(){guaSet(\'q\',document.getElementById(\'gua-q\').value);},350)" '
+    +'style="flex:1;min-width:180px">'
+    +(GUA_F.q||GUA_F.mod?'<button class="btn btn-ghost btn-sm" onclick="guaSet(\'q\',\'\');guaSet(\'mod\',\'\')">Limpiar filtros</button>':'')
+    +'</div>'
+    +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">'+chips+'</div>'
+    +'<div style="font-size:12px;color:var(--text2);margin-bottom:10px">'
+    + (filt.length===total ? (total+(total===1?' estudio':' estudios'))
+                           : ('Mostrando '+filt.length+' de '+total+' estudios'))
+    +'</div>';
+
+  if(!total){ h+='<div class="hint">Aún no guardaste estudios. Usá el botón 💾 Guardar.</div>'; }
+  else if(!filt.length){ h+='<div class="hint">Ningún estudio coincide con la búsqueda o el filtro.</div>'; }
+  else{
+    h+=orden.map(function(key){
+      var g=grupos[key], abierto=!!GUA_F.abiertos[key];
+      return '<div style="margin-bottom:10px">'
+        +'<div onclick="guaMes(\''+key+'\')" style="cursor:pointer;user-select:none;display:flex;justify-content:space-between;align-items:center;'
+        +'background:var(--head);border:1px solid var(--border);border-radius:8px;padding:9px 12px">'
+        +'<b style="font-size:13px;text-transform:capitalize">'+escHtml(g.lbl)+'</b>'
+        +'<span style="font-size:11.5px;color:var(--text2)">'+g.items.length+' · '+(abierto?'▾':'▸')+'</span></div>'
+        +(abierto?('<div style="margin-top:8px">'+g.items.map(function(e){
+            var mods=guaModulos(e).map(function(m){return '<span class="tag" style="font-size:9.5px;padding:1px 6px">'+escHtml(m.lbl)+'</span>';}).join(' ');
+            return '<div class="saved-item"><div style="min-width:0"><b>'+escHtml(e.nombre)+'</b>'
+              +'<div class="meta">'+escHtml(e.doc||'—')+' · '+escHtml(e.fecha||new Date(e.ts).toLocaleDateString())+'</div>'
+              +(mods?'<div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">'+mods+'</div>':'')
+              +'</div><div style="display:flex;gap:6px;flex-shrink:0">'
+              +'<button class="btn btn-ghost btn-sm" onclick="cargarEstudio(\''+e.id+'\')">Abrir</button>'
+              +'<button class="btn btn-danger btn-sm" onclick="borrarEstudio(\''+e.id+'\')">✕</button></div></div>';
+          }).join('')+'</div>'):'');
+    }).join('');
+  }
   h+='</div></div>';
   return h;
 };
@@ -1187,30 +1337,170 @@ function usFlags(){
   f.gc=usGC(); f.rvs=usRVS();
   f.gcAlto=f.gc!=null&&f.gc>8; f.gcBajo=f.gc!=null&&f.gc<4;
   f.rvsBajas=f.rvs!=null&&f.rvs<800; f.rvsAltas=f.rvs!=null&&f.rvs>1200;
-  f.feviNormal=S.c_fevi==='Normal';
-  f.feviRed=!!S.c_fevi&&S.c_fevi!=='Normal';
-  f.vdDil=(S.c_vd==='VD dilatado'||S.c_vd==='VD/VI >1');
-  f.vciDil=(S.c_ivc==='No colapsable');
-  f.vciColap=(S.c_ivc==='Colapsable >50%');
-  f.derrPeri=!!S.c_derr_pel&&S.c_derr_pel!=='No';
-  f.derrPeriSig=(S.c_derr_pel==='Moderado'||S.c_derr_pel==='Severo');
+  /* ── La pestaña Hemodinámica se lee ACÁ ──
+     `hd_*` es una codificación paralela de los mismos hechos clínicos que `c_*`, `pu_*` y
+     `ab_*`, y usFlags() no leía ni una de sus claves. Consecuencia medida: un taponamiento
+     cargado en Hemodinámica pintaba «🔴 Taponamiento cardíaco» en pantalla y el PDF firmado
+     decía «Sin hallazgos positivos relevantes».
+     Se combinan con OR y no se elige entre las dos: en un hallazgo de seguridad, perder el
+     positivo es el error grave. Cuando las dos fuentes se contradicen, eso se informa
+     aparte en usHemoContradicciones() en vez de resolverlo en silencio. */
+  f.hdContract=S.hd_contract||''; f.hdVci=S.hd_vci||'';
+  /* Los pares NO se combinan con un OR ingenuo. Con OR, `feviNormal` y `feviRed` podían ser
+     los dos true a la vez (c_fevi='Severa' + hd_contract='Normal'), y como usMotorConclusion
+     es una cascada de `else if` donde `feviNormal` es el discriminador entre shock
+     obstructivo y cardiogénico, una FEVI normal cargada en Hemodinámica anulaba una FEVI
+     severa cargada en Cardíaco y el informe salía con «descartar TEP masivo».
+     Regla: el POSITIVO gana (perder un hallazgo es el error grave) y su contrario se apaga,
+     de modo que los flags sean mutuamente excluyentes y la cascada no pueda tomar la rama
+     equivocada. La discordancia se informa aparte. */
+  f.feviRed=(!!S.c_fevi&&S.c_fevi!=='Normal')||(f.hdContract==='Hipodinámica');
+  f.feviNormal=!f.feviRed&&((S.c_fevi==='Normal')||(f.hdContract==='Normal'));
+  f.hiperdinamico=(f.hdContract==='Hiperdinámica');
+  f.vdDil=(S.c_vd==='VD dilatado'||S.c_vd==='VD/VI >1')||(S.hd_vd==='Dilatado');
+  f.vciDil=(S.c_ivc==='No colapsable')||(f.hdVci==='Distendida');
+  f.vciColap=!f.vciDil&&((S.c_ivc==='Colapsable >50%')||(f.hdVci==='Colapsada'));
+  f.derrPeri=(!!S.c_derr_pel&&S.c_derr_pel!=='No')||(S.hd_peri==='Derrame / taponamiento');
+  /* El selector de Hemodinámica dice «Derrame / taponamiento»: es por definición un derrame
+     con compromiso hemodinámico. Pero eso hace que una sola marca encienda derrPeri y
+     derrPeriSig juntos y baje el umbral de la rama de taponamiento, así que la discordancia
+     de SEVERIDAD con el grado cargado en Cardíaco se informa (ver usHemoContradicciones). */
+  f.derrPeriSig=(S.c_derr_pel==='Moderado'||S.c_derr_pel==='Severo')||(S.hd_peri==='Derrame / taponamiento');
+  /* Etiquetas para el informe: se derivan de la fuente que dio el positivo, no de c_* a
+     secas. Leyendo siempre c_*, un hallazgo que venía sólo de Hemodinámica imprimía
+     «Disfunción sistólica VI (undefined)» y, peor, con c_fevi='Normal' imprimía
+     «Disfunción sistólica VI (normal)» — una afirmación que se contradice sola. */
+  f.feviTxt=(!!S.c_fevi&&S.c_fevi!=='Normal')?String(S.c_fevi).toLowerCase()
+           :(f.hdContract==='Hipodinámica'?'hipodinámica, registrada en Hemodinámica':'');
+  f.derrPeriTxt=(!!S.c_derr_pel&&S.c_derr_pel!=='No')?String(S.c_derr_pel).toLowerCase()
+               :(S.hd_peri==='Derrame / taponamiento'?'con compromiso hemodinámico, registrado en Hemodinámica':'');
   var zk=['pu_asd','pu_aid','pu_pld','pu_asi','pu_aii','pu_pli'];
   f.nB=0;f.nCons=0;f.nDerr=0;f.nA=0;
   zk.forEach(function(k){var v=S[k];if(v==='Líneas B')f.nB++;else if(v==='Consolidación')f.nCons++;else if(v==='Derrame')f.nDerr++;else if(v)f.nA++;});
-  f.lineasBbil=f.nB>=2;
-  f.perfilA=f.nA>=2&&f.nB===0&&f.nCons===0&&f.nDerr===0;
-  f.slideAusente=S.pu_slide==='Ausente';
+  f.lineasBbil=(f.nB>=2)||(S.hd_lineasb==='Presentes bilateral');
+  /* perfilA se apaga si alguna fuente vio líneas B. Con OR, cargar ≥2 zonas con líneas B en
+     Pulmonar y «Ausentes (perfil A)» en Hemodinámica dejaba los dos flags en true, y como
+     son dos cadenas if/else independientes el informe decía «Síndrome intersticial
+     bilateral» y «Pulmón seco» en el mismo párrafo. */
+  f.perfilA=!f.lineasBbil&&((f.nA>=2&&f.nB===0&&f.nCons===0&&f.nDerr===0)||(S.hd_lineasb==='Ausentes (perfil A)'));
+  f.slideAusente=(S.pu_slide==='Ausente')||(S.hd_sliding==='Ausente');
   f.puntoPulm=S.pu_point==='Presente';
   f.plaps=(S.pu_pld==='Consolidación'||S.pu_pld==='Derrame'||S.pu_pli==='Consolidación'||S.pu_pli==='Derrame');
   f.derrPleu=(f.nDerr>0||(S.pu_derr_lado&&S.pu_derr_lado!=='No'));
-  f.fastPos=(S.ab_morrison==='Líquido +'||S.ab_espleno==='Líquido +'||S.ab_douglas==='Líquido +'||S.ab_peri==='Derrame +');
+  f.fastPos=(S.ab_morrison==='Líquido +'||S.ab_espleno==='Líquido +'||S.ab_douglas==='Líquido +'||S.ab_peri==='Derrame +')||(S.hd_fast==='Positivo (líquido libre)');
   f.fastRecesos=[];if(S.ab_morrison==='Líquido +')f.fastRecesos.push('Morrison');if(S.ab_espleno==='Líquido +')f.fastRecesos.push('esplenorrenal');if(S.ab_douglas==='Líquido +')f.fastRecesos.push('Douglas');if(S.ab_peri==='Derrame +')f.fastRecesos.push('pericárdico');
+  /* Hemodinámica registra el FAST como un sí/no sin recesos: si es la única fuente hay que
+     decir que fue positivo igual, sin inventar en qué receso. */
+  if(!f.fastRecesos.length&&S.hd_fast==='Positivo (líquido libre)')f.fastRecesos.push('registrado en Hemodinámica, sin detalle de receso');
   f.dvno=Math.max(num(S.nr_dvno_od)||0,num(S.nr_dvno_oi)||0);
   f.ipacm=Math.max(num(S.nr_ip_d)||0,num(S.nr_ip_i)||0);
   var vseg=[['va_fc','femoral común'],['va_fs','femoral superficial'],['va_pop','poplítea'],['va_tib','tibiales']];f.tvp=[];vseg.forEach(function(s){if(S[s[0]]==='No compresible')f.tvp.push(s[1]);});
-  f.cardiacData=!!(S.c_fevi||S.c_ivc||S.c_vd||S.c_derr_pel||f.gc!=null||f.rvs!=null);
+  if(!f.tvp.length&&S.hd_tvp==='Presente')f.tvp.push('registrada en Hemodinámica, sin detalle de segmento');
+  f.cardiacData=!!(S.c_fevi||S.c_ivc||S.c_vd||S.c_derr_pel||f.gc!=null||f.rvs!=null
+                 ||S.hd_contract||S.hd_vci||S.hd_vd||S.hd_peri);
   return f;
 }
+
+/* Las dos codificaciones pueden decir cosas opuestas del mismo hallazgo. Se combinan con OR
+   para no perder el positivo, pero la contradicción tiene que verse: que el informe diga
+   «derrame pericárdico» porque una pestaña lo marcó mientras la otra dice «No» es un dato
+   que el que firma necesita resolver, no algo que la app deba decidir por él. */
+function usHemoContradicciones(){
+  var out=[];
+  // Pericardio
+  /* Se compara SEVERIDAD, no sólo presencia. «Sí leve» y «Derrame / taponamiento» son los
+     dos «hay derrame», así que un test de presencia no los marcaba — y esa combinación
+     dispara la rama de taponamiento de la conclusión con un derrame graduado leve. */
+  if(S.c_derr_pel&&S.hd_peri){
+    var pSinA=(S.c_derr_pel==='No'), pSinB=(S.hd_peri==='Sin derrame');
+    var pLeveA=(S.c_derr_pel==='Sí leve');
+    if(pSinA!==pSinB || (pLeveA&&!pSinB))
+      out.push('Pericardio (Cardíaco: «'+S.c_derr_pel+'» · Hemodinámica: «'+S.hd_peri+'»)');
+  }
+  // Líneas B / perfil pulmonar
+  if(S.hd_lineasb){
+    var lbB=(S.hd_lineasb==='Presentes bilateral');
+    var zonasCargadas=['pu_asd','pu_aid','pu_pld','pu_asi','pu_aii','pu_pli'].some(function(k){return !!S[k];});
+    var lbA=['pu_asd','pu_aid','pu_pld','pu_asi','pu_aii','pu_pli'].filter(function(k){return S[k]==='Líneas B';}).length>=2;
+    if(zonasCargadas&&lbA!==lbB)
+      out.push('Patrón pulmonar (Pulmonar: «'+(lbA?'líneas B en 2 o más zonas':'sin patrón B bilateral')+'» · Hemodinámica: «'+S.hd_lineasb+'»)');
+  }
+  // VD
+  var vA=S.c_vd?(S.c_vd==='Normal'?'normal':'dilatado'):'';
+  var vB=S.hd_vd?(S.hd_vd==='Normal'?'normal':'dilatado'):'';
+  if(vA&&vB&&vA!==vB)out.push('Ventrículo derecho (Cardíaco: «'+vA+'» · Hemodinámica: «'+vB+'»)');
+  // VCI
+  var iA=S.c_ivc?(S.c_ivc==='No colapsable'?'distendida':'colapsable'):'';
+  var iB=S.hd_vci?(S.hd_vci==='Distendida'?'distendida':(S.hd_vci==='Colapsada'?'colapsable':'')):'';
+  if(iA&&iB&&iA!==iB)out.push('VCI (Cardíaco: «'+iA+'» · Hemodinámica: «'+iB+'»)');
+  // Contractilidad / FEVI
+  var fA=S.c_fevi?(S.c_fevi==='Normal'?'normal':'reducida'):'';
+  var fB=S.hd_contract?(S.hd_contract==='Hipodinámica'?'reducida':'normal o hiperdinámica'):'';
+  if(fA&&fB&&((fA==='normal')!==(fB!=='reducida')))out.push('Función sistólica (Cardíaco: «'+S.c_fevi+'» · Hemodinámica: «'+S.hd_contract+'»)');
+  // FAST
+  var aA=S.ab_morrison||S.ab_espleno||S.ab_douglas?( (S.ab_morrison==='Líquido +'||S.ab_espleno==='Líquido +'||S.ab_douglas==='Líquido +')?'positivo':'negativo'):'';
+  var aB=S.hd_fast?(S.hd_fast==='Negativo'?'negativo':'positivo'):'';
+  if(aA&&aB&&aA!==aB)out.push('FAST (Abdominal: «'+aA+'» · Hemodinámica: «'+aB+'»)');
+  // Lung sliding
+  var sA=S.pu_slide?(S.pu_slide==='Ausente'?'ausente':'presente'):'';
+  var sB=S.hd_sliding?(S.hd_sliding==='Ausente'?'ausente':'presente'):'';
+  if(sA&&sB&&sA!==sB)out.push('Lung sliding (Pulmonar: «'+sA+'» · Hemodinámica: «'+sB+'»)');
+  // TVP
+  var tA=(S.va_fc||S.va_fs||S.va_pop||S.va_tib)?((S.va_fc==='No compresible'||S.va_fs==='No compresible'||S.va_pop==='No compresible'||S.va_tib==='No compresible')?'presente':'ausente'):'';
+  var tB=S.hd_tvp?(S.hd_tvp==='Presente'?'presente':'ausente'):'';
+  if(tA&&tB&&tA!==tB)out.push('TVP (Vascular: «'+tA+'» · Hemodinámica: «'+tB+'»)');
+  return out;
+}
+/* ── Vejiga: volumen por elipsoide ──
+   V (ml) = 0,52 × AP × T × L con los tres diámetros en CENTÍMETROS. Los campos están
+   rotulados en milímetros —como el resto de la app— así que se dividen por 10 antes de
+   multiplicar; hacerlo con milímetros daría un volumen mil veces mayor. */
+function usVejigaVol(){
+  var a=num(S.ab_vej_ap),t=num(S.ab_vej_tr),l=num(S.ab_vej_lo);
+  if(!a||!t||!l)return null;
+  /* Los campos son type=text con inputmode=decimal —no hay type=number ni min— así que un
+     negativo entra. Con AP=-20 el volumen daba -31 ml y caía en la rama «< 100 ml: normal»:
+     un informe firmado afirmando vaciado normal sobre un número imposible. */
+  if(a<0||t<0||l<0)return NaN;
+  return 0.52*(a/10)*(t/10)*(l/10);
+}
+/* Cota de plausibilidad, igual que la del gasto cardíaco. El error más probable acá es
+   cargar CENTÍMETROS en campos rotulados en milímetros: 9/7/8 da 0,26 ml, que se imprime
+   redondeado como «0 ml — residuo post-miccional normal» cuando el volumen real son 262 ml,
+   o sea retención. Y por arriba, 900 mm da 379.080 ml sin que nada avise.
+   Una vejiga humana no baja de ~5 ml medibles ni pasa de ~2000 ml. */
+function usVejigaAviso(vol,a,t,l){
+  if(vol==null)return null;
+  if(isNaN(vol))return 'Hay un diámetro negativo: no se puede estimar el volumen.';
+  if(vol<5) return 'Volumen estimado '+vol.toFixed(1)+' ml, implausiblemente bajo. '
+    +'Verificar las unidades: los tres diámetros van en MILÍMETROS (una vejiga de 9×7×8 cm se carga 90 / 70 / 80).';
+  if(vol>2000) return 'Volumen estimado '+Math.round(vol)+' ml, fuera de rango fisiológico. Verificar los diámetros.';
+  return null;
+}
+window.usVejigaAviso=usVejigaAviso;
+window.usVejigaVol=usVejigaVol;
+/* La interpretación depende del MOMENTO de la medición: 250 ml antes de orinar son una
+   vejiga normalmente llena, y los mismos 250 ml como residuo post-miccional son retención.
+   Sin ese contexto, un solo umbral diría cosas opuestas sobre el mismo número. */
+function usVejigaInterp(vol,ctx){
+  /* Sin momento registrado NO se elige rama: el mismo número es una vejiga normalmente
+     llena antes de orinar y retención como residuo. Elegir en silencio la lectura benigna
+     era justo lo que el comentario de arriba dice que hay que evitar. */
+  if(!ctx) return {nivel:null, txt:(vol<100?'volumen bajo (< 100 ml)':vol<=300?'volumen intermedio (100-300 ml)':'volumen alto (> 300 ml)')
+    +'. Momento de la medición no registrado: la interpretación cambia según sea premiccional o residuo post-miccional.'};
+  var post=(ctx==='Residuo post-miccional');
+  if(vol<100) return {nivel:0, txt: post
+    ? 'residuo post-miccional normal (< 100 ml).'
+    : 'volumen vesical bajo (< 100 ml).'};
+  if(vol<=300) return {nivel:1, txt: post
+    ? 'residuo post-miccional moderado (100-300 ml): vaciado incompleto, controlar evolución.'
+    : 'volumen vesical moderado (100-300 ml).'};
+  return {nivel:2, txt: post
+    ? 'residuo post-miccional > 300 ml: retención urinaria significativa, considerar sondaje.'
+    : 'volumen vesical > 300 ml: vejiga distendida; si el paciente no puede orinar, considerar retención y sondaje.'};
+}
+window.usVejigaInterp=usVejigaInterp;
+
 /* ── Campos descriptivos que se cargaban y NO llegaban a ningún lado ──
    Toda la tarjeta abdominal PLUS (riñones, hígado, vía biliar, vesícula, ascitis) y la
    vascular PLUS (IMT, placa, estenosis, reflujo) eran WRITE-ONLY: cada clave aparecía una
@@ -1241,6 +1531,17 @@ function usDescriptivos(){
   if(hb.length)out.push(['Hepatobiliar',hb.join('; ')]);
   // Ascitis (líquido libre no traumático) — no lo cubre el FAST
   if(v('ab_ascitis')&&v('ab_ascitis')!=='Ausente')out.push(['Ascitis','Líquido libre peritoneal — cuantía '+v('ab_ascitis').toLowerCase()]);
+  // Vejiga
+  var _vv=(typeof usVejigaVol==='function')?usVejigaVol():null;
+  if(_vv!=null){
+    var _av=usVejigaAviso(_vv);
+    if(_av)out.push(['Revisar','Vejiga — '+_av]);
+    else{
+      var _vi=usVejigaInterp(_vv,S.ab_vej_ctx);
+      out.push(['Vejiga','Volumen vesical estimado '+fmt(_vv,0)+' ml'
+        +(S.ab_vej_ctx?' ('+String(S.ab_vej_ctx).toLowerCase()+')':'')+' — '+_vi.txt]);
+    }
+  }
   // Vascular no-TVP
   var va=[];
   if(v('va_imt'))va.push('IMT '+v('va_imt')+' mm');
@@ -1260,8 +1561,8 @@ function usDescriptivos(){
 function usInterpHallazgos(){
   var f=usFlags(),out=[];
   var cp=[];
-  if(f.feviRed)cp.push('Disfunción sistólica VI ('+String(S.c_fevi).toLowerCase()+')');
-  if(f.derrPeri)cp.push('Derrame pericárdico '+String(S.c_derr_pel).toLowerCase());
+  if(f.feviRed)cp.push('Disfunción sistólica VI'+(f.feviTxt?' ('+f.feviTxt+')':''));
+  if(f.derrPeri)cp.push('Derrame pericárdico'+(f.derrPeriTxt?' '+f.derrPeriTxt:''));
   if(f.vdDil)cp.push('Dilatación de cavidades derechas');
   if(f.vciDil)cp.push('Elementos de presión venosa central elevada (VCI sin colapso)');
   if(f.rvsBajas)cp.push('Resistencias vasculares sistémicas bajas');
@@ -1279,6 +1580,19 @@ function usInterpHallazgos(){
   if(f.dvno>5.6)np.push('DVNO elevado ('+fmt(f.dvno,1)+' mm) — elementos de hipertensión endocraneana');
   if(f.ipacm>1.4)np.push('IP ACM elevado ('+fmt(f.ipacm,2)+') — resistencia vascular cerebral aumentada');
   if(np.length)out.push(['Neuro',np.join('; ')]);
+  /* El diagnóstico del motor de shock de Hemodinámica: es lo que el médico ve en pantalla
+     («🔴 Taponamiento cardíaco») y no llegaba a ningún informe. Se omite el estado
+     «Completar evaluación», que no es un hallazgo sino la ausencia de uno. */
+  var _hd=(typeof hdDiagnose==='function')?hdDiagnose():null;
+  if(_hd&&_hd.dx&&_hd.dx!=='Completar evaluación'){
+    out.push(['Hemodinámica', _hd.dx + (_hd.reason?' — '+_hd.reason:'') + (_hd.sug?'. '+_hd.sug:'')]);
+  }
+  /* Contradicciones entre las dos codificaciones del mismo hallazgo. */
+  var _contra=(typeof usHemoContradicciones==='function')?usHemoContradicciones():[];
+  if(_contra.length){
+    out.push(['Revisar','Hallazgos cargados con valores opuestos en dos pestañas — '+_contra.join(' · ')
+      +'. El informe toma el positivo en cada caso; verificar cuál corresponde.']);
+  }
   /* VEXUS. Sólo entra si el score es calculable: sin VCI medida, o con VCI cargada y ningún
      vaso evaluado, no se escribe nada. Un «VEXUS 0» por no haber mirado afirmaría que se
      buscó congestión venosa y no había. */
@@ -1336,8 +1650,11 @@ function usMotorConclusion(){
     var faltan=[];
     if(f.gc==null)faltan.push('gasto cardíaco (VTI/TSVI/FC)');
     if(f.rvs==null)faltan.push('RVS (PAM y PVC)');
-    if(!S.c_fevi)faltan.push('FEVI');
-    if(!S.c_ivc)faltan.push('VCI');
+    /* Se mira la OTRA codificación también: con los ocho segf de Hemodinámica cargados, la
+       conclusión pedía «completar FEVI, VCI» mientras la sección de Hallazgos del mismo PDF
+       ya decía «Shock cardiogénico». El documento se desmentía a sí mismo. */
+    if(!S.c_fevi&&!S.hd_contract)faltan.push('FEVI');
+    if(!S.c_ivc&&!S.hd_vci)faltan.push('VCI');
     var probable=f.feviRed?'un componente cardiogénico':(f.vciColap?'hipovolemia':(f.rvsBajas?'un patrón distributivo':'un patrón no clasificable con los datos disponibles'));
     incompleta='Evaluación incompleta: valoración hemodinámica incompleta. No se descarta '+probable+'. Se sugiere completar con '+(faltan.length?faltan.join(', '):'los módulos faltantes')+'.';
   }
@@ -1390,9 +1707,12 @@ function generarPDF(){
      «Líquido libre en Morrison» y conservaba «Ascitis abundante», dejando una sección
      abdominal a medias que el lector interpreta como el abdomen completo. */
   var INCL_MAP={'Cardíaco / hemodinámico':'cardiaco','Pulmonar':'pulmonar','Abdominal / FAST':'abdominal','Vascular':'vascular','Neuro':'neuro',
-                'Renal':'abdominal','Hepatobiliar':'abdominal','Ascitis':'abdominal',
+                'Renal':'abdominal','Hepatobiliar':'abdominal','Ascitis':'abdominal','Vejiga':'abdominal',
                 'Vascular — otros':'vascular','Cardíaco — biometría':'cardiaco',
                 'VEXUS':'vascular'};
+  /* «Hemodinámica» y «Revisar» NO se mapean a propósito: el fallback `if(!t) return true`
+     los deja pasar con cualquier selección de secciones. Un taponamiento y una contradicción
+     entre pestañas tienen que estar en el informe se haya tildado lo que se haya tildado. */
   /* El filtro se activa SÓLO si se tildó una casilla que efectivamente puede seleccionar
      hallazgos, o sea una de las que están en INCL_MAP. INCL_TABS ofrece 9 casillas y este
      mapa cubre 5: con la condición vieja, tildar «Incluir Paciente» o «Incluir Weaning»
@@ -1542,7 +1862,10 @@ function renderLabTab(t){var d=window._labData;var b=$('labTabBody');if(!b)retur
   }
   b.innerHTML=h;
 }
-function labPDF(){var d=window._labData;if(!window.jspdf)return;var doc=new window.jspdf.jsPDF({unit:'mm',format:'a4'});
+function labPDF(){var d=window._labData;
+  /* Mismo aviso que generarPDF: si el integrity descartó el script, el botón parecía roto
+     sin explicación — que es exactamente el modo de falla silencioso del SRI. */
+  if(!window.jspdf){toast('PDF no disponible: no se pudo cargar la librería');return;}var doc=new window.jspdf.jsPDF({unit:'mm',format:'a4'});
   doc.setFillColor(13,148,136);doc.rect(0,0,210,22,'F');doc.setTextColor(255,255,255);doc.setFont('helvetica','bold');doc.setFontSize(16);doc.text('UltraSmart · Laboratorio',14,14);
   var y=34;doc.setTextColor(20,20,20);doc.setFontSize(11);
   var rows=[['Estudios guardados',d.arr.length],['Con conclusión',d.withConcl],['Con imágenes',d.withImg],['PDF generados',d.lab.pdf||0],['Quiz respondidos',d.lab.quiz||0]];
