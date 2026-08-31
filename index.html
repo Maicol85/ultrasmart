@@ -367,9 +367,19 @@ function setK(k,v){S[k]=v;persist();recompute();}
 window.setK=setK;
 
 /* seg button */
+/* Tocar la opción YA seleccionada la des-selecciona. Sin esto no había forma de devolver un
+   segmentado a vacío desde la interfaz: la única salida era 🧹 Limpiar, que borra el estudio
+   entero. Con los hallazgos llegando al informe eso dejaba un toque accidental como
+   irreversible — marcar «Derrame / taponamiento» por error metía «Pericardiocentesis
+   eco-guiada urgente» en el PDF firmado y no había manera de sacarlo.
+   Aplica a TODOS los segmentados, no sólo al del pericardio: el problema es del control, y
+   dejar unos con salida y otros sin ella sería más confuso que no tenerla en ninguno. */
 function segClick(btn){var wrap=btn.parentNode,k=wrap.getAttribute('data-seg');
+  var yaEstaba=btn.classList.contains('on');
   Array.prototype.forEach.call(wrap.children,function(b){b.classList.remove('on');});
-  btn.classList.add('on');S[k]=btn.getAttribute('data-v');persist();recompute();}
+  if(yaEstaba){ S[k]=''; }
+  else { btn.classList.add('on'); S[k]=btn.getAttribute('data-v'); }
+  persist();recompute();}
 window.segClick=segClick;
 
 /* restore control values after render */
@@ -388,15 +398,21 @@ function segf(k,label,opts){var b=opts.map(function(v){return '<button data-v="'
 /* =====================================================================
    NAVIGATION
    ===================================================================== */
+/* El ORDEN de este array es el del menú lateral. Sigue el recorrido del paciente crítico:
+   se identifica, se mira el corazón, se decide la hemodinamia, después el pulmón y el
+   destete, y recién ahí el resto de los sistemas. Los módulos que no son de exploración
+   (protocolos, procedimientos, académico, configuración) van al final.
+   Las ETIQUETAS se dejan como estaban: «Cardíaco POCUS» y «Abdominal / FAST» dicen qué hay
+   adentro, y «FAST» es el nombre del protocolo que el médico busca. */
 var NAV=[
   ['paciente','👤','Paciente'],
   ['cardiaco','🫀','Cardíaco POCUS'],
-  ['pulmonar','🫁','Pulmonar'],
-  ['vascular','🩸','Vascular'],
-  ['abdominal','🏥','Abdominal / FAST'],
-  ['weaning','🌬️','Weaning'],
-  ['neuro','🧠','Neuro'],
   ['hemodinamia','💧','Hemodinámica'],
+  ['pulmonar','🫁','Pulmonar'],
+  ['weaning','🌬️','Weaning'],
+  ['abdominal','🏥','Abdominal / FAST'],
+  ['neuro','🧠','Neuro'],
+  ['vascular','🩸','Vascular'],
   ['protocolos','📋','Protocolos'],
   ['procedimientos','🔬','Procedimientos'],
   ['academico','📚','Académico'],
@@ -548,48 +564,19 @@ TAB.vascular=function(){
   return tvp+adv;
 };
 
-TAB.ocular=function(){
-  return card('👁️ Vaina del nervio óptico (DVNO)',
-    '<div class="hint" style="margin-bottom:10px">📏 Medir 3 mm por detrás del globo ocular, perpendicular al nervio. Sonda lineal de alta frecuencia, ojo cerrado con abundante gel, baja intensidad (ALARA).</div>'+
-    '<div class="grid3">'+inp('oc_od','DVNO ojo derecho (mm)','','number')+inp('oc_oi','DVNO ojo izquierdo (mm)','','number')+
-    '<div><label class="fl">Interpretación</label><div class="in" id="oc_int" style="background:var(--bg2)">—</div></div></div>'+
-    '<div class="subhead">Protocolo de medición</div>'+
-    '<table class="tbl"><tr><th>Paso</th><th>Acción</th></tr>'+
-    '<tr><td>1</td><td>Paciente en decúbito, ojo cerrado, gel abundante sobre el párpado.</td></tr>'+
-    '<tr><td>2</td><td>Sonda lineal transversal, identificar el globo y el nervio óptico hipoecoico posterior.</td></tr>'+
-    '<tr><td>3</td><td>Marcar 3 mm posterior al polo posterior del globo.</td></tr>'+
-    '<tr><td>4</td><td>Medir el diámetro de la vaina perpendicular al eje del nervio. Promediar ambos ojos.</td></tr></table>'+
-    '<div class="subhead">Segmento anterior/posterior</div><div class="grid3">'+
-    segf('oc_crist','Cristalino',['Normal','Catarata','Luxado'])+segf('oc_vitreo','Vítreo',['Normal','Hemorragia','Desprendimiento post.'])+segf('oc_retina','Retina',['Aplicada','Desprendimiento'])+'</div>');
-};
 
+/* TAB.ocular y TAB.avanzado se eliminaron: estaban fuera de NAV, así que eran inalcanzables
+   desde la interfaz. Lo que tenían de propio se integró en TAB.neuro —el Doppler transcraneal
+   con velocidades y los patrones de paro circulatorio cerebral, y el segmento ocular
+   anterior/posterior—; el DVNO y la tarjeta hemodinámica que también contenían ya estaban
+   duplicados en Neuro y en Hemodinámica. Las claves `dtc_*` y `oc_*` se conservan tal cual,
+   así que los estudios guardados de antes siguen leyéndose. */
 TAB.procedimientos=function(){
   return card('🔬 Procedimientos eco-guiados',
     '<div class="seg" style="margin-bottom:12px"><button data-v="vvc" onclick="procSel(this,\'vvc\')" class="on">Vía central</button><button data-v="para" onclick="procSel(this,\'para\')">Paracentesis</button><button data-v="toraco" onclick="procSel(this,\'toraco\')">Toracocentesis</button><button data-v="artro" onclick="procSel(this,\'artro\')">Artrocentesis</button></div>'+
     '<div id="procBody"></div>');
 };
 
-TAB.avanzado=function(){
-  var dtc='<div class="card"><div class="card-h">🧠 Doppler transcraneal (DTC)<span class="plus-badge">PLUS</span></div><div class="card-b">'+
-    '<div class="grid2">'+segf('dtc_vent','Ventana temporal',['Buena','Regular','Mala'])+segf('dtc_lat','Vaso',['MCA D','MCA I','ACA D','ACA I','PCA D','PCA I'])+'</div>'+
-    '<div class="grid4" style="margin-top:10px">'+inp('dtc_vm','Vel. media (cm/s)','','number')+inp('dtc_vs','Pico sistólico (cm/s)','','number')+inp('dtc_vd','Diastólica (cm/s)','','number')+'<div><label class="fl">IP calculado</label><div class="in" id="dtc_ip" style="background:var(--bg2)">—</div></div></div>'+
-    '<div class="concl" id="dtc_concl" style="margin-top:12px"></div>'+
-    '<div class="subhead">Muerte encefálica — patrón Doppler</div>'+segf('dtc_mse','Patrón',['—','Flujo normal','Flujo reverberante','Espigas sistólicas','Ausencia de señal'])+
-    '<div class="hint">Patrones compatibles con paro circulatorio cerebral: flujo diastólico reverberante (oscilante), espigas sistólicas aisladas, o desaparición de señal previamente registrada. Requiere confirmación por protocolo institucional.</div>'+
-    '</div></div>';
-  var hemo='<div class="card"><div class="card-h">💉 Hemodinámico completo<span class="plus-badge">PLUS</span></div><div class="card-b">'+
-    '<div class="grid4">'+inp('h_dtsvi','Diámetro TSVI (cm)','','number')+inp('h_vti','VTI (cm)','','number')+inp('h_fc','FC (lpm)','','number')+inp('h_pam','PAM (mmHg)','','number')+'</div>'+
-    /* h_pad (presión arterial diastólica) NO entra al informe a propósito: no alimenta
-       ningún cálculo —la PAM se carga directo en h_pam— y es un dato de monitorización que
-       ya está en la hoja de enfermería. Se deja el campo porque sirve de referencia al
-       calcular a mano, pero no es un hallazgo ecográfico y no corresponde firmarlo como tal. */
-    '<div class="grid3" style="margin-top:8px">'+inp('h_sc','Sup. corporal (m²)','','number')+inp('h_pvc','PVC (mmHg)','','number')+inp('h_pad','PAD (mmHg)','','number')+'</div>'+
-    '<div class="grid4" style="margin-top:10px"><div><label class="fl">VS</label><div class="in" id="h_vs" style="background:var(--bg2)">—</div></div><div><label class="fl">GC</label><div class="in" id="h_gc" style="background:var(--bg2)">—</div></div><div><label class="fl">IC</label><div class="in" id="h_ic" style="background:var(--bg2)">—</div></div><div><label class="fl">RVS</label><div class="in" id="h_rvs" style="background:var(--bg2)">—</div></div></div>'+
-    '<div class="subhead">Predicción respuesta a fluidos</div><div class="grid3">'+inp('h_vti_esp','VTI esp (cm)','','number')+inp('h_vti_insp','VTI insp (cm)','','number')+'<div><label class="fl">ΔVTI</label><div class="in" id="h_dvti" style="background:var(--bg2)">—</div></div></div>'+
-    '<div class="concl" id="h_concl" style="margin-top:12px"></div>'+
-    '</div></div>';
-  return dtc+hemo;
-};
 
 TAB.config=function(){
   return card('⚙️ Configuración',
@@ -732,7 +719,9 @@ function recompute(){
 
   /* OCULAR */
   var od=num(S.oc_od),oi=num(S.oc_oi);
-  if(od||oi){var mx=Math.max(od||0,oi||0);var st=(mx>=6?'≥6 mm → Hipertensión endocraneana probable':mx>=5?'5–5.9 mm → elevado, correlacionar':'<5 mm → normal');setTxt('oc_int',fmt(mx,1)+' mm — '+st);}else setTxt('oc_int','—');
+  /* El bloque de oc_int se retiró: ese id vivía en la pestaña Ocular, que se eliminó. El
+     DVNO se mide ahora en nr_dvno_od/oi dentro de Neuro; oc_od/oc_oi sólo pueden venir de
+     estudios viejos y no tienen dónde mostrarse. */
 
   /* DTC */
   var vm=num(S.dtc_vm),vsd=num(S.dtc_vs),vd=num(S.dtc_vd);
@@ -936,7 +925,7 @@ var ACAD={
  ocular:{t:'Ocular',
   fund:'La medición ecográfica del diámetro de la vaina del nervio óptico (DVNO) es un marcador no invasivo de presión intracraneana. El espacio subaracnoideo perineural se distiende con la hipertensión endocraneana. Se mide 3 mm por detrás del globo, donde la variación de la vaina es máxima. Complementa la evaluación de urgencia neurológica.',
   tec:['Sonda lineal de alta frecuencia, ojo cerrado, gel abundante sobre el párpado.','Baja intensidad acústica (principio ALARA) para proteger el ojo.','Identificar el nervio óptico hipoecoico posterior al globo.','Medir a 3 mm del polo posterior, perpendicular al eje del nervio. Promediar ambos ojos.'],
-  vals:[['DVNO normal','< 5 mm'],['DVNO elevado','5–5,9 mm'],['HTIC probable','≥ 6 mm'],['Punto de medición','3 mm posterior al globo']],
+  vals:[['DVNO normal','≤ 5,0 mm'],['DVNO borderline','5,1–5,7 mm'],['HTIC probable','≥ 6 mm'],['Punto de medición','3 mm posterior al globo']],
   pat:['DVNO ≥6 mm → hipertensión endocraneana probable.','Membrana flotante ondulante → desprendimiento de retina/vítreo.','Cristalino desplazado → luxación.','Hemorragia vítrea → puntos ecogénicos móviles.'],
   formula:'<div class="calcbox"><div class="formula">PIC ≈ 4,5 + 3,7 × (DVNO − 4)  (orientativo)</div><div class="grid3"><div><label class="fl">DVNO (mm)</label><input class="in" type="text" inputmode="decimal" id="af_dvno" oninput="afPic()"></div></div><div class="calc-res" id="af_pic">—</div></div>',
   afterRender:function(){window.afPic=function(){var d=gv('af_dvno');if(d){var p=4.5+3.7*(d-4);setTxt('af_pic','PIC ≈ '+fmt(Math.max(p,0),0)+' mmHg — '+(d>=6?'HTIC probable':d>=5?'elevado':'normal'));}else setTxt('af_pic','—');};},
@@ -946,6 +935,16 @@ var ACAD={
    ['El valor normal de DVNO es:',['<5 mm','<8 mm','<10 mm','<3 mm'],0],
    ['Una membrana ondulante flotante en el vítreo sugiere:',['Catarata','Desprendimiento de retina/vítreo','HTIC','Normal'],1]]},
 
+ vexus:{t:'VEXUS — congestión venosa',
+  fund:'El VEXUS (Venous Excess Ultrasound) gradúa la congestión venosa sistémica, que es el lado olvidado de la hemodinamia: durante décadas se midió si el paciente respondía a volumen y no cuánto le costaba tolerarlo. La congestión retrógrada transmite la presión al intersticio de los órganos encapsulados —riñón e hígado— y ese aumento de la presión intersticial cae la presión de perfusión renal aunque la presión arterial media sea normal. De ahí que la sobrecarga se asocie a injuria renal aguda incluso en pacientes «bien perfundidos». El protocolo combina el diámetro de la VCI con el patrón Doppler pulsado de tres venas: suprahepática, porta e intrarrenal. Es una herramienta para decidir DESCONGESTIÓN, no para decidir volumen: responde «¿este paciente está congestivo?», no «¿va a responder a fluidos?».',
+  tec:['Todas las mediciones con Doppler pulsado y, salvo la VCI, con trazado de ECG simultáneo si se dispone: sin él es difícil saber qué onda es sistólica y cuál diastólica.','VCI: corte subcostal longitudinal, 2 cm de la unión con la aurícula derecha. El corte del protocolo es 2 cm (20 mm).','Vena suprahepática: sonda subcostal o intercostal derecha, ventana hepática; se busca la vena media o derecha. Se comparan las ondas S (sistólica) y D (diastólica).','Vena porta: misma ventana hepática, rama principal o derecha. Se mide el índice de pulsatilidad: (Vmáx − Vmín) / Vmáx × 100.','Vena intrarrenal: corte coronal o longitudinal del riñón derecho, Doppler pulsado en una vena interlobar. El patrón normal es continuo; la congestión lo vuelve discontinuo.','Ojo con el ángulo y con la profundidad: son flujos de baja velocidad y el aliasing o una ganancia mal puesta cambian el patrón.'],
+  vals:[['VCI — corte del protocolo','2 cm (20 mm)'],['Suprahepática normal','S > D'],['Suprahepática leve','S < D'],['Suprahepática severa','flujo sistólico reverso'],['Porta normal','pulsatilidad < 30%'],['Porta leve','30–49%'],['Porta severa','≥ 50% o flujo reverso'],['Intrarrenal normal','flujo continuo'],['Intrarrenal leve','bifásico discontinuo'],['Intrarrenal severa','monofásico discontinuo (solo diastólico)']],
+  pat:['GRADUACIÓN (Beaubien-Souligny et al., Ultrasound J 2020;12(1):16): el grado lo decide CUÁNTOS vasos están severos, no cuál es el peor.','VEXUS 0 — VCI < 20 mm. Sin congestión venosa significativa; la presión venosa central es probablemente normal.','VEXUS 1 — VCI ≥ 20 mm y NINGÚN vaso severo (cualquier combinación de normal o leve). Congestión leve: monitorizar y vigilar el balance.','VEXUS 2 — VCI ≥ 20 mm y EXACTAMENTE UN vaso severo. Congestión moderada: evaluar necesidad de descongestión; riesgo de injuria renal aguda aumentado.','VEXUS 3 — VCI ≥ 20 mm y DOS O MÁS vasos severos. Congestión severa: alta asociación con AKI; considerar descongestión activa (diuréticos o ultrafiltración según el contexto) y reevaluar con el tratamiento.','ERROR FRECUENTE: graduar por el vaso peor. Un solo vaso severo es grado 2, no 3. El 3 es el que carga la asociación fuerte con AKI y el que dispara la recomendación de descongestión activa: inflarlo un grado lleva a diureticar a quien no corresponde.','EVIDENCIA: en la cohorte original (145 pacientes de cirugía cardíaca) el grado 3 al ingreso a CTI tuvo un cociente de probabilidad positivo de 6,37 para injuria renal aguda cardiorrenal. Series posteriores (Sovetova 2024) describen ~47% de incidencia de AKI en pacientes con grado 3.','LIMITACIONES — el patrón venoso se altera SIN que haya congestión: insuficiencia tricuspídea severa (da reverso sistólico suprahepático con presiones de llenado bajas), cirrosis e hipertensión portal (la porta deja de ser fiable), y pulsatilidad portal aumentada en personas delgadas sanas con bajo índice de masa corporal.','Otras limitaciones: fibrosis renal avanzada vuelve poco fiable el patrón intrarrenal; la fibrilación auricular y la ventilación mecánica modifican las ondas; y es una técnica operador-dependiente que requiere entrenamiento específico.','El VEXUS NO reemplaza el juicio clínico ni sustituye la evaluación de la perfusión: es un dato más, que se integra con la clínica, el balance, la función renal y el resto del examen.'],
+  quiz:[['El grado VEXUS lo determina:',['La severidad del vaso peor','Cuántos vasos tienen patrón severo','El diámetro de la VCI únicamente','El índice de pulsatilidad portal'],1],
+   ['Con VCI de 24 mm y UN solo vaso con patrón severo, el grado es:',['VEXUS 1','VEXUS 2','VEXUS 3','No graduable'],1],
+   ['Con VCI de 16 mm y los tres vasos severos, el grado es:',['VEXUS 0','VEXUS 1','VEXUS 2','VEXUS 3'],0],
+   ['El patrón severo de la vena suprahepática es:',['S > D','S < D','Flujo sistólico reverso','Flujo continuo'],2],
+   ['Una insuficiencia tricuspídea severa puede dar reverso sistólico suprahepático:',['Sólo si hay congestión','Aun con presiones de llenado bajas','Nunca','Sólo en cirrosis'],1]]},
  procedimientos:{t:'Procedimientos',
   fund:'La guía ecográfica en tiempo real aumenta el éxito y la seguridad de los procedimientos invasivos (accesos vasculares, paracentesis, toracocentesis, artrocentesis), reduciendo complicaciones. Requiere visualizar la aguja en todo momento (en plano o fuera de plano) y confirmar la posición final.',
   tec:['Técnica estéril: cubre-sonda y gel estéril.','Identificar la estructura objetivo y las estructuras a evitar (arteria, pleura, vasos epigástricos).','Punción visualizando la punta de la aguja en tiempo real.','Confirmar posición: guía en vena, líquido aspirado, ausencia de complicación (eco pulmonar post).'],
@@ -1686,7 +1685,25 @@ function usInterpHallazgos(){
       +(S.nr_pup_refl==='Ausente'?' — sospechar compromiso del tronco o herniación (descartar causas farmacológicas: midriáticos, atropina, sedación profunda, bloqueo neuromuscular)'
         :(_pv!=null&&_pv<0.09?' con velocidad de contracción '+fmt(_pv,2)+' cm/s (< 0,09: respuesta lenta)':'')));
   }
+  /* DTC y ojo, integrados desde las pestañas huérfanas: si se pueden cargar, tienen que
+     llegar al informe. El patrón de paro circulatorio cerebral no se afirma como muerte
+     encefálica —eso lo establece el protocolo institucional, no la ecografía—. */
+  var _dtcVm=num(S.dtc_vm),_dtcVs=num(S.dtc_vs),_dtcVd=num(S.dtc_vd);
+  if(_dtcVm>0&&_dtcVs!=null&&_dtcVd!=null){
+    var _dtcIp=(_dtcVs-_dtcVd)/_dtcVm;
+    np.push('DTC '+(S.dtc_lat?String(S.dtc_lat)+': ':'')+'Vm '+fmt(_dtcVm,0)+' cm/s, IP '+fmt(_dtcIp,2)
+      +(_dtcIp>1.4?' — resistencia vascular cerebral aumentada':'')
+      +(_dtcVm>120?'; velocidad media elevada, considerar vasoespasmo':''));
+  }
+  if(S.dtc_mse&&S.dtc_mse!=='Flujo normal')
+    np.push('patrón Doppler transcraneal: '+String(S.dtc_mse).toLowerCase()
+      +' — compatible con paro circulatorio cerebral; requiere confirmación por el protocolo institucional');
   if(np.length)out.push(['Neuro',np.join('; ')]);
+  var _ojo=[];
+  if(S.oc_crist&&S.oc_crist!=='Normal')_ojo.push('cristalino: '+String(S.oc_crist).toLowerCase());
+  if(S.oc_vitreo&&S.oc_vitreo!=='Normal')_ojo.push('vítreo: '+String(S.oc_vitreo).toLowerCase());
+  if(S.oc_retina==='Desprendimiento')_ojo.push('desprendimiento de retina');
+  if(_ojo.length)out.push(['Ocular',_ojo.join('; ')+'.']);
 
   /* FUNCIÓN DIASTÓLICA. E/A, E/e' y TDA se cargaban y sólo alimentaban el dominio cardíaco
      del semáforo de weaning: no producían ningún hallazgo cardíaco propio. Un E/e' de 18
@@ -1813,6 +1830,10 @@ function usInterpHallazgos(){
   if(_hd&&_hd.dx&&_hd.dx!=='Completar evaluación'){
     out.push(['Hemodinámica', _hd.dx + (_hd.reason?' — '+_hd.reason:'') + (_hd.sug?'. '+_hd.sug:'')]);
   }
+  /* Contradicción entre protocolos incluidos: el PDF los imprime todos, en rojo, sin nota. */
+  var _pc=(typeof usProtoContradicciones==='function')?usProtoContradicciones():null;
+  if(_pc)out.push(['Revisar','Los protocolos incluidos en este informe cierran en patrones de shock distintos: '
+    +_pc.join(' · ')+'. Verificar cuál corresponde a este paciente.']);
   /* Contradicciones entre las dos codificaciones del mismo hallazgo. */
   var _contra=(typeof usHemoContradicciones==='function')?usHemoContradicciones():[];
   if(_contra.length){
@@ -2057,7 +2078,7 @@ function generarPDF(){
                 /* Se mapea a `pulmonar` y no a `abdominal`: el campo vive en la pestaña del
                    eFAST, pero quien lee el informe busca el neumotórax en la sección
                    pulmonar, y tildando sólo «Incluir Pulmonar» se perdía. */
-                'eFAST — tórax':'pulmonar',
+                'eFAST — tórax':'pulmonar','Ocular':'neuro',
                 'Aorta abdominal':'abdominal','Índice tobillo-brazo':'vascular',
                 /* La casilla «Incluir Weaning» existía y no gateaba nada: ahora gatea la
                    fila que efectivamente se emite. */
@@ -2119,7 +2140,7 @@ function generarPDF(){
      no estaba duplicado, se movió a la fila interpretada. */
   if(typeof protoReportData==='function'){
     var _pr=protoReportData();
-    if(_pr.length){head('Protocolos ecográficos (RUSH / FALLS / BLUE / FAST)');
+    if(_pr.length){head('Protocolos ecográficos aplicados');
       _pr.forEach(function(r){if(y>245){doc.addPage();y=20;}
         doc.setFont('helvetica','bold');doc.setFontSize(10);doc.setTextColor(13,148,136);doc.text(String(r.name),14,y);y+=5.5;
         doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(90,90,90);doc.text('Fecha: '+r.fecha,14,y);y+=5;doc.setTextColor(30,30,30);
@@ -2300,7 +2321,7 @@ window.updateStorageInfo=updateStorageInfo;
    2) Protocolos: 7 wizards interactivos (RUSH · FALLS · BLUE · FAST/eFAST ·
       CAUSE · SESAME · HIMAP)
    ═══════════════════════════════════════════════════════════════════════ */
-/* NAV ya define el orden final (Hemodinámica, Protocolos, Neuro, Weaning) — sin splices. */
+/* El orden del menú lo define NAV y nada más: acá no se hacen splices. */
 
 /* ───────── Cálculos hemodinámicos (compartidos por UI y PDF) ───────── */
 function hdGC(){var d=num(S.hd_dtsvi),vti=num(S.hd_vti),fc=num(S.hd_fc);var area=(d!=null)?0.785*Math.pow(d/10,2):null;var vs=(area!=null&&vti!=null)?area*vti:null;var gc=(vs!=null&&fc!=null)?vs*fc/1000:null;return {area:area,vs:vs,gc:gc};}
@@ -2512,10 +2533,13 @@ var PROTOCOLS={
     r_hipono:{dx:'Shock hipovolémico no hemorrágico',color:'red',sug:'Reposición guiada por US (PLR + delta VTI).'}
   }},
   falls:{name:'FALLS — Fluid Administration Limited by Lung Sonography',start:'f1',nodes:{
-    f1:{q:'¿Hay taponamiento cardíaco o TEP evidente (VD dilatado + TVP)?',opts:[['Sí','fr_obst'],['No','f2']]},
+    /* FALLS descarta las TRES causas obstructivas antes de autorizar fluidos: taponamiento,
+     neumotórax y TEP. Faltaba el neumotórax, en un protocolo cuyo propósito declarado es
+     habilitar la carga de volumen. */
+  f1:{q:'¿Hay taponamiento, neumotórax (lung point / perfil A′) o TEP evidente (VD dilatado + TVP)?',opts:[['Sí','fr_obst'],['No','f2']]},
     f2:{q:'¿Patrón pulmonar anterior?',opts:[['Perfil B (líneas B bilaterales)','fr_cardio'],['Perfil A (líneas A)','f3']]},
     f3:{q:'FALLS-Responder — iniciaste fluidos. ¿Mejoría clínica sostenida?',opts:[['Sí, mejoría','fr_hipo'],['No mejoría, apareció perfil B','fr_endpoint'],['No mejoría, persiste perfil A','fr_septico']]},
-    fr_obst:{dx:'Shock obstructivo — tratar la causa',color:'red',sug:'Tratar taponamiento (pericardiocentesis) o TEP (anticoagulación/trombólisis) según hallazgo.'},
+    fr_obst:{dx:'Shock obstructivo — tratar la causa',color:'red',sug:'Tratar según el hallazgo: taponamiento (pericardiocentesis), neumotórax a tensión (descompresión) o TEP (anticoagulación / trombólisis). NO cargar volumen hasta resolver la causa obstructiva.'},
     fr_cardio:{dx:'Shock cardiogénico (PCP >18 mmHg)',color:'red',sug:'Congestión pulmonar. Inotrópicos/diuréticos; evitar sobrecarga de volumen.'},
     fr_hipo:{dx:'Shock hipovolémico',color:'red',sug:'Continuar reposición guiada; identificar y corregir la causa de las pérdidas.'},
     fr_endpoint:{dx:'FALLS-endpoint — Shock séptico (detener fluidos)',color:'red',sug:'La aparición de líneas B marca el límite de fluidos. Vasopresores; antibióticos.'},
@@ -2539,52 +2563,98 @@ var PROTOCOLS={
     br_indet:{dx:'Indeterminado — otras técnicas diagnósticas',color:'yellow',sug:'Sin lung point ni líneas B. Complementar con radiografía / TC según sospecha.'}
   }},
   fast:{name:'FAST / eFAST — Trauma',start:'t1',nodes:{
-    t1:{q:'¿Mecanismo de trauma?',opts:[['Penetrante','t1b'],['Cerrado','t2']]},
-    t1b:{q:'¿Derrame pericárdico en ventana subxifoidea?',opts:[['Sí','tr_tap'],['No','t2']]},
+    /* «Cerrado» iba directo a t2 y salteaba la ventana subxifoidea, así que el taponamiento
+     era INALCANZABLE en trauma cerrado. La ventana pericárdica es parte del FAST estándar en
+     ambos mecanismos. */
+  /* Las dos ramas van a la ventana subxifoidea: el mecanismo se registra porque queda en el
+     camino del informe y orienta el rendimiento esperado, pero NO cambia qué ventanas se
+     miran. Antes «Cerrado» la salteaba y el taponamiento era inalcanzable en trauma cerrado. */
+  t1:{q:'¿Mecanismo de trauma? (se registra; ambas ramas evalúan todas las ventanas)',opts:[['Penetrante','t1b'],['Cerrado','t1b']]},
+    t1b:{q:'¿Derrame pericárdico en ventana subxifoidea?',opts:[['Sí','tr_tap'],['No','t4']]},
     t2:{q:'¿Líquido libre en espacio de Morrison (costodiafragmático D)?',opts:[['Sí','t2b'],['No','t3']]},
     t2b:{q:'¿Paciente hemodinámicamente inestable?',opts:[['Sí','tr_lap'],['No','tr_tc']]},
-    t3:{q:'¿Líquido libre en esplenorrenal izquierdo o suprapúbico?',opts:[['Sí','t3b'],['No','t4']]},
+    t3:{q:'¿Líquido libre en esplenorrenal izquierdo o suprapúbico?',opts:[['Sí','t3b'],['No','tr_neg']]},
     t3b:{q:'¿Paciente inestable?',opts:[['Sí','tr_lap'],['No','tr_tc']]},
-    t4:{q:'eFAST tórax — ¿ausencia de lung sliding uni o bilateral?',opts:[['Sí','tr_ntx'],['No','tr_neg']]},
+    /* El tórax pasó a evaluarse SIEMPRE, antes del abdomen. Antes sólo se llegaba acá si NO
+     había líquido libre, o sea que el politraumatizado con Morrison positivo —justo aquel en
+     que un neumotórax a tensión concurrente mata más rápido— nunca recibía la parte «e» del
+     eFAST. Y el resultado positivo manda a seguir con las ventanas abdominales en vez de
+     terminar el protocolo. */
+  t4:{q:'eFAST tórax — ¿ausencia de lung sliding con lung point, o hemotórax?',opts:[['Sí','tr_ntx'],['No','t2']]},
     tr_tap:{dx:'Taponamiento / lesión cardíaca — cirugía urgente',color:'red',sug:'Ventana subxifoidea positiva. Toracotomía / pericardiocentesis; quirófano urgente.'},
     tr_lap:{dx:'FAST positivo + inestable — Laparotomía exploradora urgente',color:'red',sug:'Líquido libre con inestabilidad. Laparotomía; activar protocolo de transfusión masiva.'},
     tr_tc:{dx:'FAST positivo + estable — TC abdominal',color:'yellow',sug:'Estable: TC con contraste para caracterizar la lesión y decidir manejo (conservador vs quirúrgico).'},
-    tr_ntx:{dx:'Neumotórax — evaluar descompresión',color:'red',sug:'Ausencia de sliding. Descompresión / drenaje según clínica y tamaño.'},
+    tr_ntx:{dx:'Neumotórax / hemotórax — evaluar descompresión',color:'red',sug:'Descompresión o drenaje según clínica y tamaño. Este resultado no descarta líquido libre: continuar con las ventanas abdominales.',
+      opts:[['Continuar con las ventanas abdominales →','t2']]},
     tr_neg:{dx:'eFAST negativo — repetir si cambio clínico',color:'yellow',sug:'Sin líquido ni neumotórax. Vigilancia; repetir ante deterioro (FAST seriado).'}
   }},
   cause:{name:'CAUSE — Cardiac Arrest Ultra-Sound Exam',start:'c1',intro:'Iniciar por ventana subxifoidea — evalúa el corazón sin interrumpir las compresiones. Para PCR no arritmogénica (AESP / Asistolia).',nodes:{
     c1:{q:'¿Derrame pericárdico con colapso de cavidades derechas?',opts:[['Sí','cr_tap'],['No','c2']]},
     c2:{q:'¿VI y VD ambos colapsados / chatos (signo del beso)?',opts:[['Sí','cr_hipo'],['No','c3']]},
     c3:{q:'¿VD muy dilatado + VI pequeño comprimido?',opts:[['Sí','cr_tep'],['No','c4']]},
-    c4:{q:'¿Ausencia de lung sliding bilateral?',opts:[['Sí','cr_ntx'],['No','c5']]},
+    /* En PCR, con compresiones y sin ventilación efectiva, el deslizamiento pleural está
+     abolido en casi todos los pacientes: preguntar sólo por su ausencia hacía que este nodo
+     respondiera «Sí» en casi cualquier paro y recomendara toracostomía BILATERAL. Se exige
+     lung point, que es el criterio específico y el que el propio BLUE ya usa en b6. */
+  c4:{q:'¿Ausencia de lung sliding CON lung point (o perfil A′) que confirme neumotórax?',opts:[['Sí','cr_ntx'],['No, o sin lung point','c5']]},
     c5:{q:'¿Líquido libre abdominal abundante (FAST)?',opts:[['Sí','cr_hem'],['No','cr_noUS']]},
     cr_tap:{dx:'Taponamiento',color:'red',sug:'Pericardiocentesis eco-guiada durante la RCP. Reanudar compresiones de inmediato.'},
     cr_hipo:{dx:'Hipovolemia severa',color:'red',sug:'Reposición volumétrica agresiva (cristaloides / hemoderivados). Buscar el sangrado.'},
     cr_tep:{dx:'TEP masivo',color:'red',sug:'Trombólisis durante la RCP (Alteplase 50 mg IV). Prolongar la reanimación.'},
-    cr_ntx:{dx:'Neumotórax a tensión',color:'red',sug:'Descompresión inmediata bilateral (toracostomía con aguja / dedo).'},
+    cr_ntx:{dx:'Neumotórax a tensión',color:'red',sug:'Descompresión del lado confirmado por lung point (toracostomía con aguja / dedo). La ausencia de sliding por sí sola no lo confirma en PCR: las compresiones y la falta de ventilación la abolen.'},
     cr_hem:{dx:'Hemorragia interna',color:'red',sug:'Control quirúrgico urgente. Transfusión masiva; corregir coagulopatía.'},
     cr_noUS:{dx:'Causa no detectable por US — continuar RCP y ACLS',color:'yellow',sug:'Considerar electrolitos, hipotermia, toxinas, IAM. Seguir el algoritmo ACLS.'}
   }},
   sesame:{name:'SESAME — Lichtenstein (PCR)',start:'s1',intro:'Protocolo de 5 pasos durante la RCP (~46 s). No interrumpir compresiones. Transductor microconvex.',nodes:{
-    s1:{q:'PASO 1 (0-10 s) PULMÓN — ¿ausencia de lung sliding bilateral?',opts:[['Sí','sr_ntx'],['No','s2']]},
+    /* Mismo criterio: es el PRIMER nodo del protocolo, o sea el resultado más fácil de
+     alcanzar de toda la pestaña. Lichtenstein exige lung point / perfil A′ en SESAME
+     justamente por este falso positivo. */
+  s1:{q:'PASO 1 (0-10 s) PULMÓN — ¿ausencia de sliding CON lung point (o perfil A′)?',opts:[['Sí','sr_ntx'],['No, o sin lung point','s2']]},
     s2:{q:'PASO 2 (10-20 s) VENAS FEMORALES — ¿TVP femoral bilateral (venas no compresibles)?',opts:[['Sí','sr_tep'],['No','s3']]},
     s3:{q:'PASO 3 (20-30 s) ABDOMEN — ¿líquido libre abdominal abundante?',opts:[['Sí','sr_hipo'],['No','s4']]},
     s4:{q:'PASO 4 (28-34 s) PERICARDIO (subxifoideo) — ¿derrame con colapso de cavidades?',opts:[['Sí','sr_tap'],['No','s5']]},
     s5:{q:'PASO 5 (34-46 s) ETT — ¿hay actividad mecánica cardíaca visible?',opts:[['Sí, con actividad','sr_aesp'],['No, sin actividad','sr_asist'],['FV fina visible','sr_fv']]},
-    sr_ntx:{dx:'Neumotórax como causa probable',color:'red',sug:'Descompresión. Reanudar compresiones.'},
+    sr_ntx:{dx:'Neumotórax como causa probable',color:'red',sug:'Descompresión del lado confirmado. Reanudar compresiones. En PCR la ausencia de sliding aislada no confirma neumotórax.'},
     sr_tep:{dx:'TEP masivo probable',color:'red',sug:'Trombólisis durante la RCP. Prolongar la reanimación.'},
     sr_hipo:{dx:'Hipovolemia por hemorragia interna',color:'red',sug:'Cirugía urgente. Transfusión masiva.'},
     sr_tap:{dx:'Taponamiento',color:'red',sug:'Pericardiocentesis eco-guiada.'},
     sr_aesp:{dx:'AESP verdadera — buscar causas reversibles',color:'yellow',sug:'Actividad mecánica presente. Revisar electrolitos, toxinas, hipotermia (5H/5T).'},
     sr_asist:{dx:'Asistolia confirmada — evaluar pronóstico y límite terapéutico',color:'yellow',sug:'Sin actividad mecánica. Considerar el cese según contexto y tiempo de RCP.'},
-    sr_fv:{dx:'Fibrilación ventricular fina — cardioversión inmediata',color:'red',sug:'Desfibrilación inmediata. Reanudar compresiones tras la descarga.'}
+    /* Decía «cardioversión»: es sincronizada y en FV no hay QRS con el cual sincronizar, así
+     que el desfibrilador se queda esperando. El `sug` ya decía bien «desfibrilación», pero
+     el `dx` es lo que el PDF imprime destacado y en rojo. */
+  sr_fv:{dx:'Fibrilación ventricular fina — desfibrilación inmediata',color:'red',sug:'Desfibrilación inmediata (NO sincronizada). Reanudar compresiones tras la descarga.'}
   }},
   himap:{name:'HIMAP — Hipotensión en UCI',start:'h1',nodes:{
     h1:{q:'H — HEART — ¿derrame pericárdico con colapso, o VI muy hipoquinético?',opts:[['Derrame / taponamiento','hr_obst'],['VI hipoquinético','hr_cardio'],['Normal o hiperdinámica','h_i']]},
-    h_i:{q:'I — IVC — ¿cómo está la VCI?',opts:[['Colapsada (<15 mm)','h_m'],['Distendida (>21 mm)','h_a']]},
-    h_m:{q:'M — MORRISON — ¿líquido libre en FAST abdominal?',opts:[['Sí','hr_hem'],['No','hr_nohem']]},
-    h_a:{q:'A — AORTA / PULMÓN — ¿VD dilatado con TVP o ausencia de lung sliding?',opts:[['Sí','hr_obst2'],['No','h_p']]},
-    h_p:{q:'P — PERITONEAL — ¿líneas B bilaterales o derrame pleural bilateral?',opts:[['Sí','hr_congest'],['No','hr_distr']]},
+    /* Faltaba «Normal»: RUSH sí la ofrece para la misma pregunta, así que el paciente con VCI
+     de 18 mm no tenía respuesta válida y el médico estaba obligado a forzarla hacia un lado
+     — lo que producía que RUSH dijera «cardiogénico» y HIMAP «hipovolémico» sobre el mismo
+     paciente, los dos en rojo en el mismo PDF. */
+  /* Todos los perfiles de VCI pasan por Morrison: es un paso fijo del protocolo y antes sólo
+     lo recibía la rama colapsada. La rama colapsada se separa (h_m/h_a_col) porque su
+     conclusión sin hallazgos es distinta —hipovolemia no hemorrágica— y el árbol no tiene
+     memoria del valor de la VCI. */
+  h_i:{q:'I — IVC — ¿cómo está la VCI?',opts:[['Colapsada (<15 mm)','h_m'],['Normal (15-21 mm)','h_m2'],['Distendida (>21 mm)','h_m2']]},
+  h_m2:{q:'M — MORRISON — ¿líquido libre en FAST abdominal?',opts:[['Sí','hr_hem'],['No','h_a']]},
+    /* La M es un paso fijo del protocolo: antes sólo la recibía la rama de VCI colapsada.
+       Y el «No» iba directo a hipovolemia no hemorrágica, que es justo donde caía el
+       aneurisma de aorta roto —sangra al retroperitoneo, o sea FAST negativo, y se presenta
+       con VCI colapsada—: el informe firmaba «reponer por pérdidas digestivas». Ahora el
+       FAST negativo sigue a la A de aorta antes de concluir. */
+    h_m:{q:'M — MORRISON — ¿líquido libre en FAST abdominal?',opts:[['Sí','hr_hem'],['No','h_a_col']]},
+    /* El aneurisma de aorta roto sangra al retroperitoneo —FAST negativo— y se presenta con
+       VCI colapsada: antes ese paciente caía directo en «hipovolémico no hemorrágico» y el
+       informe sugería reponer por pérdidas digestivas. */
+    h_a_col:{q:'A — AORTA — ¿aorta abdominal ≥ 30 mm, disección o líquido libre periaórtico?',opts:[['Sí','hr_aorta'],['No','hr_nohem']]},
+    /* La «A» de HIMAP es AORTA y la pregunta no la mencionaba: en un protocolo de hipotensión
+     en UCI, el aneurisma roto y la disección no eran alcanzables en ninguno de los caminos. */
+  h_a:{q:'A — AORTA — ¿aorta abdominal ≥ 30 mm, disección o líquido libre periaórtico?',opts:[['Sí','hr_aorta'],['No','h_a2']]},
+  h_a2:{q:'¿VD dilatado con TVP, o neumotórax confirmado?',opts:[['Sí','hr_obst2'],['No','h_p']]},
+  hr_aorta:{dx:'Patología aórtica como causa de la hipotensión',color:'red',sug:'Aneurisma de aorta abdominal roto o disección: cirugía vascular urgente. No demorar en completar el resto del protocolo.'},
+    /* Estaba etiquetada «PERITONEAL» y pregunta por pulmón; el peritoneo ya lo cubrió la M de
+     Morrison. En HIMAP la P es Pulmonar. */
+  h_p:{q:'P — PULMONAR — ¿líneas B bilaterales o derrame pleural bilateral?',opts:[['Sí','hr_congest'],['No','hr_distr']]},
     hr_obst:{dx:'Shock obstructivo por taponamiento',color:'red',sug:'Pericardiocentesis eco-guiada. Reposición mientras se drena.'},
     hr_cardio:{dx:'Shock cardiogénico',color:'red',sug:'Inotrópicos, precarga cautelosa; evaluar isquemia y soporte mecánico.'},
     hr_hem:{dx:'Shock hipovolémico hemorrágico',color:'red',sug:'Reposición con hemoderivados; control del sangrado / cirugía.'},
@@ -2598,7 +2668,73 @@ var PW={proto:'rush',node:'p1',path:[]};
 function protoReset(id){PW.proto=id;PW.node=PROTOCOLS[id].start;PW.path=[];}
 function protoWrapHTML(){
   var bar='<div class="seg" style="margin-bottom:14px;overflow-x:auto;flex-wrap:nowrap">'+Object.keys(PROTOCOLS).map(function(id){return '<button'+(id===PW.proto?' class="on"':'')+' onclick="protoShow(\''+id+'\')">'+PROTO_LABEL[id]+'</button>';}).join('')+'</div>';
-  return bar+'<div id="protoBody">'+protoRender()+'</div>';
+  /* Lista de lo YA incluido, con su botón de quitar. Antes no se veía en ningún lado qué
+     protocolos iban a salir en el PDF: el médico incluía y no tenía cómo saberlo ni cómo
+     revertirlo. */
+  var R=S.__protoReports||{}, ids=Object.keys(R);
+  var inc='';
+  if(ids.length){
+    inc='<div style="margin-bottom:14px;padding:10px 12px;background:var(--head);border:1px dashed var(--border);border-radius:9px">'
+      +'<div style="font-size:11.5px;color:var(--text2);margin-bottom:7px">En el informe PDF ('+ids.length+'):</div>'
+      +ids.map(function(id){return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">'
+        +'<span style="flex:1;font-size:12px"><b>'+escHtml(PROTO_LABEL[id]||id)+'</b> — '+escHtml(R[id].dx||'')+'</span>'
+        +'<button class="btn btn-danger btn-sm" onclick="protoQuitar(\''+id+'\')">Quitar</button></div>';}).join('')
+      +usProtoContradiccionHTML(R)
+      +'</div>';
+  }
+  return bar+inc+'<div id="protoBody">'+protoRender()+'</div>';
+}
+/* Protocolos distintos se acumulan en el PDF sin ninguna reconciliación, y pueden cerrar en
+   diagnósticos opuestos sobre el mismo paciente (RUSH «cardiogénico» y HIMAP «hipovolémico»
+   era el caso más fácil de producir). No se puede decidir por el médico cuál vale, pero sí
+   avisarle antes de que firme. */
+/* Faltaban categorías para tres resultados, y justo los que más importan: hr_aorta (el nodo
+   nuevo), tr_lap y tr_tc — el shock hemorrágico arquetípico, y FAST+RUSH es el par que más
+   se combina. Sin categoría no disparaban el aviso nunca. */
+var US_SHOCK_CAT=[
+  {re:/cardiog/i,                       cat:'cardiogénico'},
+  {re:/hipovol|hemorr|laparotom|FAST positivo/i, cat:'hipovolémico / hemorrágico'},
+  {re:/distributiv|sépti/i,             cat:'distributivo'},
+  {re:/a[óo]rtic|aneurism|disecci/i,    cat:'aórtico'},
+  {re:/obstructiv|tapona|\bTEP\b|neumot/i, cat:'obstructivo'}
+];
+/* BLUE es un protocolo PULMONAR: no cierra en un patrón de shock. Incluirlo daba falsos
+   positivos —un neumotórax estable diagnosticado por BLUE junto a un RUSH distributivo
+   imprimía «cierran en patrones de shock distintos»— y el aviso que llama al lobo es el que
+   se ignora cuando el caso real importa. */
+var US_PROTO_NO_SHOCK={blue:1};
+function usProtoContradicciones(R){
+  R=R||S.__protoReports||{};
+  var vistos={}, dxPorCat={};
+  Object.keys(R).forEach(function(id){
+    if(US_PROTO_NO_SHOCK[id])return;
+    var dx=String(R[id].dx||'');
+    for(var i=0;i<US_SHOCK_CAT.length;i++){
+      if(US_SHOCK_CAT[i].re.test(dx)){
+        var c=US_SHOCK_CAT[i].cat;
+        (vistos[c]=vistos[c]||[]).push(PROTO_LABEL[id]||id);
+        (dxPorCat[c]=dxPorCat[c]||[]).push(dx);
+        break;
+      }
+    }
+  });
+  var cats=Object.keys(vistos);
+  if(cats.length>1) return cats.map(function(c){return c+' ('+vistos[c].join(', ')+')';});
+  /* Dentro de la MISMA categoría también puede haber contradicción accionable: en un paro,
+     CAUSE cerrando en taponamiento y SESAME en neumotórax son los dos «obstructivo» y
+     proponen procedimientos excluyentes (pericardiocentesis vs toracostomía). */
+  if(cats.length===1){
+    var ds=dxPorCat[cats[0]].filter(function(v,i,a){return a.indexOf(v)===i;});
+    if(ds.length>1) return ['mismo patrón ('+cats[0]+') con causas distintas: '+ds.join(' · ')];
+  }
+  return null;
+}
+function usProtoContradiccionHTML(R){
+  var c=usProtoContradicciones(R);
+  if(!c)return '';
+  return '<div style="margin-top:8px;padding:8px 10px;border-left:3px solid var(--amber,#f59e42);background:rgba(245,158,66,.08);border-radius:6px;font-size:11.5px;line-height:1.55">'
+    +'⚠ Los protocolos incluidos cierran en patrones de shock distintos: '+escHtml(c.join(' · '))
+    +'. Van a salir los dos en el informe. Quitá el que no corresponda antes de firmar.</div>';
 }
 function protoRender(){
   var P=PROTOCOLS[PW.proto],n=P.nodes[PW.node];if(!n)return '';
@@ -2608,12 +2744,19 @@ function protoRender(){
     return '<div style="border:2px solid '+col+';border-radius:14px;padding:16px;background:linear-gradient(135deg,rgba(225,29,43,.06),rgba(3,105,161,.04))">'+
       '<div style="font-size:11.5px;font-weight:700;color:var(--text2);letter-spacing:.5px">'+(n.color==='yellow'?'🟡':'🔴')+' DIAGNÓSTICO PROBABLE</div>'+
       '<div style="font-size:20px;font-weight:800;color:'+col+';margin:6px 0 12px">'+escHtml(n.dx)+'</div>'+
-      '<div style="font-size:12.5px;margin-bottom:9px"><b>Razonamiento:</b> Basado en: '+escHtml(camino)+'.</div>'+
+      '<div style="font-size:12.5px;margin-bottom:9px"><b>Razonamiento:</b> '+escHtml(protoCaminoTxt(PW.path)||camino)+'.</div>'+
       '<div style="font-size:11.5px;color:var(--text2);line-height:1.55;margin-bottom:10px"><b style="color:var(--text)">Sugerencia orientativa:</b> '+escHtml(n.sug)+'</div>'+
       '<div style="font-size:10.5px;color:var(--text2);font-style:italic;margin-bottom:13px">⚠️ Orientativo — no reemplaza el juicio clínico ni la evaluación integral del paciente</div>'+
       '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
         '<button class="btn btn-ghost btn-sm" onclick="protoRestart()">🔄 Reiniciar protocolo</button>'+
         '<button class="btn btn-blue btn-sm" onclick="protoInclude()">📄 Incluir resultado en informe PDF</button>'+
+        /* Un nodo puede tener `dx` Y `opts`: es un hallazgo que NO cierra el protocolo. Sin
+           esto, tr_ntx afirmaba «completar después las ventanas abdominales» y el wizard sólo
+           ofrecía reiniciar o incluir, así que la única forma de seguir era volver atrás y
+           NEGAR el neumotórax — con lo cual el informe terminaba diciendo «eFAST negativo». */
+        ((n.opts&&n.opts.length)?n.opts.map(function(o,i){
+          return '<button class="btn btn-teal btn-sm" onclick="protoAnswer('+i+')">'+escHtml(o[0])+'</button>';
+        }).join(''):'')+
       '</div></div>';
   }
   var h='';
@@ -2628,10 +2771,43 @@ function protoShow(id){protoReset(id);var w=$('protoWrap');if(w)w.innerHTML=prot
 function protoAnswer(i){var n=PROTOCOLS[PW.proto].nodes[PW.node];var o=n.opts[i];PW.path.push({q:n.q,a:o[0],node:PW.node});PW.node=o[1];var b=$('protoBody');if(b)b.innerHTML=protoRender();}
 function protoBack(){if(!PW.path.length)return;var last=PW.path.pop();PW.node=last.node;var b=$('protoBody');if(b)b.innerHTML=protoRender();}
 function protoRestart(){PW.node=PROTOCOLS[PW.proto].start;PW.path=[];var b=$('protoBody');if(b)b.innerHTML=protoRender();}
+/* El camino guarda la PREGUNTA y la respuesta. protoAnswer ya capturaba las dos en PW.path
+   y acá se tiraba la mitad, así que el informe firmado decía «Camino: Sí» respaldando un
+   diagnóstico en rojo — y en FALLS, CAUSE y SESAME un solo clic bastaba para producir una
+   entrada. La pregunta se recorta porque algunas son largas; lo que importa es que se
+   entienda a qué contestó que sí. */
+function protoCaminoTxt(path){
+  return (path||[]).map(function(p){
+    /* No se trunca: el PDF usa splitTextToSize y hay ancho de sobra, y el recorte se
+       PERSISTE en __protoReports, o sea que se perdía información del registro clínico sin
+       necesidad. Tampoco se borra el «PASO n — ÓRGANO»: en SESAME eso dejaba «¿derrame con
+       colapso de cavidades?» sin decir que era la ventana pericárdica. */
+    var q=String(p.q||'').trim();
+    return q?(q+' → '+p.a):p.a;
+  }).join('  ·  ');
+}
 function protoInclude(){var P=PROTOCOLS[PW.proto],n=P.nodes[PW.node];if(!n||!n.dx){toast('Complete el protocolo hasta el diagnóstico');return;}
-  var camino=PW.path.map(function(p){return p.a;}).join(' → ');
-  S.__protoReports=S.__protoReports||{};S.__protoReports[PW.proto]={name:P.name,fecha:new Date().toLocaleString(),camino:camino,dx:n.dx,sug:n.sug};persist();
-  toast('📄 '+PROTO_LABEL[PW.proto]+' agregado al informe');}
+  var yaEstaba=!!(S.__protoReports&&S.__protoReports[PW.proto]);
+  /* Re-incluir pisaba el anterior en silencio, con el mismo toast que la primera vez. */
+  if(yaEstaba&&!confirm(PROTO_LABEL[PW.proto]+' ya estaba incluido en el informe con otro resultado.\n\n¿Reemplazarlo por este?'))return;
+  S.__protoReports=S.__protoReports||{};
+  S.__protoReports[PW.proto]={name:P.name,fecha:new Date().toISOString().slice(0,16).replace('T',' '),
+    camino:protoCaminoTxt(PW.path),dx:n.dx,sug:n.sug};
+  persist();
+  /* Se repinta el envoltorio para que el panel de incluidos y el aviso de contradicción
+     reflejen lo que se acaba de agregar: si no, el médico incluye un segundo protocolo que
+     contradice al primero y el aviso recién aparece al volver a entrar a la pestaña. */
+  var w=$('protoWrap'); if(w)w.innerHTML=protoWrapHTML();
+  toast('📄 '+PROTO_LABEL[PW.proto]+(yaEstaba?' actualizado en el informe':' agregado al informe'));}
+/* Antes no había forma de sacar un protocolo del informe: quedaba en todos los PDF de ese
+   paciente y el único escape era limpiar el estudio entero. */
+function protoQuitar(id){
+  if(!S.__protoReports||!S.__protoReports[id])return;
+  if(!confirm('¿Quitar '+PROTO_LABEL[id]+' del informe?'))return;
+  delete S.__protoReports[id];persist();
+  var w=$('protoWrap'); if(w)w.innerHTML=protoWrapHTML();
+  toast('🗑 '+PROTO_LABEL[id]+' quitado del informe');}
+window.protoQuitar=protoQuitar;
 function protoReportData(){var R=S.__protoReports||{};return Object.keys(R).map(function(k){return R[k];});}
 window.protoShow=protoShow;window.protoAnswer=protoAnswer;window.protoBack=protoBack;window.protoRestart=protoRestart;window.protoInclude=protoInclude;
 TAB.protocolos=function(){protoReset('rush');return '<div id="protoWrap">'+protoWrapHTML()+'</div>';};
@@ -2716,7 +2892,25 @@ TAB.neuro=function(){
   var pup=card('🔦 Pupilometría ecográfica',
     '<div class="grid2">'+segf('nr_pup_refl','Reflejo fotomotor',['Presente','Ausente'])+inp('nr_pup_vel','Velocidad de contracción (cm/s)','','number')+'</div>'+
     '<div class="concl" id="nr_pup_int" style="margin-top:12px"></div>');
-  return dvno+dtc+pup+'<div class="concl" id="nr_concl" style="display:none"></div>';
+  /* Integrado desde TAB.avanzado, que estaba fuera de NAV y era inalcanzable: el DTC con
+     VELOCIDADES (Neuro sólo pedía el IP ya calculado, no lo calculaba) y los patrones Doppler
+     de paro circulatorio cerebral. Se conservan las claves `dtc_*` para no romper los
+     estudios viejos que ya las tienen guardadas. */
+  var dtcVel=card('📈 DTC — velocidades y patrón de paro circulatorio',
+    '<div class="grid2">'+segf('dtc_vent','Ventana temporal',['Buena','Regular','Mala'])+segf('dtc_lat','Vaso',['MCA D','MCA I','ACA D','ACA I','PCA D','PCA I'])+'</div>'+
+    '<div class="grid4" style="margin-top:10px">'+inp('dtc_vm','Vel. media (cm/s)','','number')+inp('dtc_vs','Pico sistólico (cm/s)','','number')+inp('dtc_vd','Diastólica (cm/s)','','number')+'<div><label class="fl">IP calculado</label><div class="in" id="dtc_ip" style="background:var(--bg2)">—</div></div></div>'+
+    '<div class="concl" id="dtc_concl" style="margin-top:12px"></div>'+
+    '<div class="subhead">Paro circulatorio cerebral — patrón Doppler</div>'+
+    segf('dtc_mse','Patrón',['Flujo normal','Flujo reverberante','Espigas sistólicas','Ausencia de señal'])+
+    '<div class="hint">Patrones compatibles con paro circulatorio cerebral: flujo diastólico reverberante (oscilante), espigas sistólicas aisladas, o desaparición de una señal previamente registrada. Requiere confirmación por el protocolo institucional de muerte encefálica; la ecografía por sí sola no lo establece.</div>');
+  /* Integrado desde TAB.ocular. Su DVNO estaba duplicado con el de acá y se descarta; lo que
+     se conserva es el segmento anterior y posterior, que no existía en ningún otro lado. */
+  var ojo=card('👁️ Ojo — segmento anterior y posterior',
+    '<div class="grid3">'+segf('oc_crist','Cristalino',['Normal','Catarata','Luxado'])+
+    segf('oc_vitreo','Vítreo',['Normal','Hemorragia','Desprendimiento post.'])+
+    segf('oc_retina','Retina',['Aplicada','Desprendimiento'])+'</div>'+
+    '<div class="hint">Sonda lineal de alta frecuencia, ojo cerrado con abundante gel y baja intensidad (ALARA). No explorar ante sospecha de globo abierto.</div>');
+  return dvno+dtc+dtcVel+pup+ojo+'<div class="concl" id="nr_concl" style="display:none"></div>';
 };
 /* ── ESTADO COMPARTIDO GLOBAL ──────────────────────────────────────────
    'S' ya es el único objeto de estado de la app (persistido una sola vez).
@@ -2738,9 +2932,13 @@ function seedWeaning(){
   /* Pulmonar (6 zonas cualitativas) → LUS 12 regiones (0-3). Derrame → no aplica. */
   var lmap={pu_asd:'wn_lus_ras',pu_aid:'wn_lus_rai',pu_pld:'wn_lus_rpi',pu_asi:'wn_lus_las',pu_aii:'wn_lus_lai',pu_pli:'wn_lus_lpi'};
   var ltr={'Normal (A)':'0','Líneas B':'1','Consolidación':'3'};
-  Object.keys(lmap).forEach(function(src){var d=lmap[src];if((S[d]==null||S[d]==='')&&S[src]&&ltr[S[src]]!=null)S[d]=ltr[S[src]];});
+  /* Se siembra sólo si la clave NO EXISTE, no si está vacía. `''` es lo que escribe
+     segClick al des-seleccionar, así que con la condición vieja tocar una región LUS ya
+     marcada apagaba el botón y seedWeaning la volvía a sembrar en el mismo recompute: el
+     botón quedaba gris, el score no se movía, y el valor seguía en S y salía en el PDF. */
+  Object.keys(lmap).forEach(function(src){var d=lmap[src];if(S[d]==null&&S[src]&&ltr[S[src]]!=null)S[d]=ltr[S[src]];});
   /* Pulmonar derrame magnitud (Pequeño/Moderado/Grande) → tamaño pleural (…/Severo). */
-  if((S.wn_pleu_tam==null||S.wn_pleu_tam==='')&&S.pu_derr_mag){var pm={'Pequeño':'Pequeño','Moderado':'Moderado','Grande':'Severo'}[S.pu_derr_mag];if(pm)S.wn_pleu_tam=pm;}
+  if(S.wn_pleu_tam==null&&S.pu_derr_mag){var pm={'Pequeño':'Pequeño','Moderado':'Moderado','Grande':'Severo'}[S.pu_derr_mag];if(pm)S.wn_pleu_tam=pm;}
 }
 TAB.weaning=function(){
   seedWeaning();
