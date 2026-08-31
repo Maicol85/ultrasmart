@@ -711,6 +711,9 @@ function recompute(){
   var hc=$('h_concl');
   if(hve&&hvi){var hdv=(Math.max(hve,hvi)-Math.min(hve,hvi))/((hve+hvi)/2)*100;setTxt('h_dvti',fmt(hdv,0)+'%');if(hc)hc.innerHTML='<b>ΔVTI '+fmt(hdv,0)+'%</b> → '+(hdv>12?'respondedor a fluidos probable (zona de precarga-dependencia).':'poco probable que responda a fluidos.');}
   else{setTxt('h_dvti','—');if(hc)hc.innerHTML='Complete VTI insp/esp para predecir respuesta a fluidos.';}
+  /* VEXUS depende de hd_vci_max, que se edita en esta misma pantalla: sin este llamado el
+     score quedaría mostrando el del paciente anterior al corregir el diámetro. */
+  if(typeof vexusRender==='function')try{vexusRender();}catch(e){}
 }
 function ivcPad(state,dmm){
   var small=!dmm||dmm<21;var collapse=(state==='Colapsable >50%');
@@ -981,16 +984,51 @@ window.quizAns=quizAns;
    ===================================================================== */
 function getEstudios(){try{return JSON.parse(localStorage.getItem(STUKEY)||'[]')||[];}catch(e){return [];}}
 function setEstudios(a){localStorage.setItem(STUKEY,JSON.stringify(a));}
+/* Claves que NO pertenecen al paciente: configuración del centro/firma y las casillas de
+   inclusión en el PDF. Sobreviven a limpiar y a empezar un paciente nuevo. */
+function usEsClaveDePaciente(k){ return !/^(cfg_|incl-)/.test(k); }
+/* Vacía el estudio dejando la configuración. `S={}` a secas —lo que hacía limpiarTodo—
+   borraba también el centro y la firma del médico, que son del consultorio y no del
+   paciente: había que volver a cargarlos después de cada limpieza. */
+function usResetEstudio(){
+  Object.keys(S).forEach(function(k){ if(usEsClaveDePaciente(k)) delete S[k]; });
+  persist();
+  imgAll(function(all){all.filter(function(x){return x.studyId==='current';}).forEach(function(x){imgDel(x.id);});refreshThumbs();});
+}
+window.usResetEstudio=usResetEstudio;
+
 function guardarEstudio(){
   var arr=getEstudios();
   var id='est_'+Date.now();
   var snap=JSON.parse(JSON.stringify(S));
   arr.unshift({id:id,ts:Date.now(),nombre:S.p_nombre||'(sin nombre)',doc:S.p_doc||'',fecha:S.p_fecha||'',data:snap});
-  setEstudios(arr);
+  /* localStorage tira QuotaExceeded sin aviso: sin este try, guardarEstudio lanzaba, el
+     toast de confirmación nunca aparecía y el médico veía que el botón «no hacía nada». */
+  try{ setEstudios(arr); }
+  catch(e){ alert('❌ No se pudo guardar el estudio: el almacenamiento del navegador está lleno.\n\n'
+    + 'Borrá estudios viejos o imágenes desde 💾 Guardados y volvé a intentar. El estudio actual NO se perdió.');
+    return; }
   /* reassign current images to this study id */
   imgAll(function(all){all.filter(function(x){return x.studyId==='current';}).forEach(function(x){x.studyId=id;imgAdd(x);});});
   bumpLab('save');
-  toast('💾 Estudio guardado');
+  /* EL ARRASTRE ENTRE PACIENTES SE DECIDE ACÁ, que es el momento en que ocurre.
+     Guardar no limpiaba, y el manual de la app enseña «Guardá (💾) y exportá el informe en
+     PDF», así que el estudio tiene que seguir cargado para poder exportarlo. Pero el que
+     hace tres pacientes seguidos arrastra TODO: y desde que los campos descriptivos entran
+     al informe, si para el paciente siguiente no abre la pestaña Abdominal —porque no le
+     hizo eco abdominal— nunca ve esos campos, nunca los borra, y el informe firmado sale
+     con «hidronefrosis severa» del paciente anterior.
+     Se pregunta una sola vez, en el punto exacto de la decisión, y por defecto (Cancelar)
+     el estudio queda cargado para exportar el PDF. */
+  if(confirm('💾 Estudio guardado.\n\n¿Empezar un paciente nuevo?\n\n'
+    + 'Aceptar: limpia el formulario (la configuración del centro y la firma se conservan).\n'
+    + 'Cancelar: seguís en este estudio, por ejemplo para exportar el PDF.')){
+    usResetEstudio();
+    goTab('paciente');
+    toast('💾 Guardado · formulario limpio para el paciente nuevo');
+  } else {
+    toast('💾 Estudio guardado');
+  }
 }
 window.guardarEstudio=guardarEstudio;
 TOP.guardados=function(){
@@ -1241,6 +1279,18 @@ function usInterpHallazgos(){
   if(f.dvno>5.6)np.push('DVNO elevado ('+fmt(f.dvno,1)+' mm) — elementos de hipertensión endocraneana');
   if(f.ipacm>1.4)np.push('IP ACM elevado ('+fmt(f.ipacm,2)+') — resistencia vascular cerebral aumentada');
   if(np.length)out.push(['Neuro',np.join('; ')]);
+  /* VEXUS. Sólo entra si el score es calculable: sin VCI medida, o con VCI cargada y ningún
+     vaso evaluado, no se escribe nada. Un «VEXUS 0» por no haber mirado afirmaría que se
+     buscó congestión venosa y no había. */
+  var _vx=(typeof vexusEstado==='function')?vexusEstado():null;
+  if(_vx&&_vx.score!=null){
+    var _nEv=_vx.evaluados+(_vx.evaluados===1?' vaso evaluado':' vasos evaluados');
+    var _det=_vx.severos.length
+      ? (_vx.severos.length+' severo'+(_vx.severos.length===1?'':'s')+' de '+_nEv+': '+_vx.severos.join(', ')+(_vx.score===0?'; VCI < 20 mm':''))
+      : ('sin patrón severo en '+_nEv+(_vx.score===0?'; VCI < 20 mm':''));
+    out.push(['VEXUS','VEXUS '+_vx.score+' ('+_det+'): '+VEXUS_INTERP[_vx.score]
+      +(_vx.evaluados<3?' Se evaluaron '+_vx.evaluados+' de los 3 vasos del protocolo.':'')]);
+  }
   /* Los descriptivos van DESPUÉS de los interpretativos y antes del aviso de discrepancia. */
   if(typeof usDescriptivos==='function')Array.prototype.push.apply(out,usDescriptivos());
   /* Si el mismo gasto cardíaco fue cargado en dos pestañas con valores que no coinciden,
@@ -1341,7 +1391,8 @@ function generarPDF(){
      abdominal a medias que el lector interpreta como el abdomen completo. */
   var INCL_MAP={'Cardíaco / hemodinámico':'cardiaco','Pulmonar':'pulmonar','Abdominal / FAST':'abdominal','Vascular':'vascular','Neuro':'neuro',
                 'Renal':'abdominal','Hepatobiliar':'abdominal','Ascitis':'abdominal',
-                'Vascular — otros':'vascular','Cardíaco — biometría':'cardiaco'};
+                'Vascular — otros':'vascular','Cardíaco — biometría':'cardiaco',
+                'VEXUS':'vascular'};
   /* El filtro se activa SÓLO si se tildó una casilla que efectivamente puede seleccionar
      hallazgos, o sea una de las que están en INCL_MAP. INCL_TABS ofrece 9 casillas y este
      mapa cubre 5: con la condición vieja, tildar «Incluir Paciente» o «Incluir Weaning»
@@ -1549,7 +1600,15 @@ function importData(ev){var f=ev.target.files[0];if(!f)return;var r=new FileRead
   r.readAsText(f);ev.target.value='';
 }
 window.importData=importData;
-function limpiarTodo(){if(!confirm('¿Limpiar el estudio actual? (los estudios guardados no se borran)'))return;S={};persist();goTab('paciente');imgAll(function(all){all.filter(function(x){return x.studyId==='current';}).forEach(function(x){imgDel(x.id);});refreshThumbs();});toast('🧹 Estudio limpiado');}
+function limpiarTodo(){
+  if(!confirm('¿Limpiar el estudio actual? (los estudios guardados no se borran)'))return;
+  /* Usa el mismo reset que «paciente nuevo»: una sola definición de qué es del paciente y
+     qué es del consultorio. Antes hacía S={}, que se llevaba puestos el centro y la firma
+     del médico y obligaba a recargarlos después de cada limpieza. */
+  usResetEstudio();
+  goTab('paciente');
+  toast('🧹 Estudio limpiado');
+}
 window.limpiarTodo=limpiarTodo;
 function updateStorageInfo(){var el=$('storageInfo');if(!el)return;
   var used=0;try{used=(JSON.stringify(localStorage).length/1024).toFixed(0);}catch(e){}
@@ -1638,6 +1697,20 @@ TAB.hemodinamia=function(){
   var s3=card('🦵 PLR — Passive Leg Raising',
     '<div class="grid2">'+inp('hd_vti_bas','VTI basal (cm)','','number')+inp('hd_vti_plr','VTI post-PLR (cm)','','number')+'</div>'+
     '<div class="concl" id="hd_plr" style="margin-top:12px"></div>');
+  var sV=card('🩸 VEXUS — congestión venosa sistémica',
+    '<div class="hint" style="margin-bottom:10px">Prerequisito: <b>VCI máx</b> de la tarjeta de arriba — <span id="vx_vci">—</span></div>'+
+    '<div class="grid3">'+
+    segf('vx_sh','Vena suprahepática',['Normal (S>D)','Leve (S<D)','Severo (reverso sistólico)'])+
+    segf('vx_pv','Vena porta',['Normal (<30%)','Leve (30-49%)','Severo (≥50% o reverso)'])+
+    segf('vx_ir','Vena intrarrenal',['Normal (continuo)','Leve (bifásico)','Severo (monofásico)'])+
+    '</div>'+
+    '<div class="concl" id="vx_out" style="margin-top:12px"></div>'+
+    '<div class="hint" style="margin-top:10px;border-left:3px solid var(--teal);padding-left:10px;line-height:1.6">'+
+    'Los hallazgos VEXUS deben integrarse siempre con la clínica del paciente. No reemplaza el juicio médico. '+
+    'El patrón venoso se altera <b>sin</b> que haya congestión en la insuficiencia tricuspídea severa (da reverso '+
+    'sistólico suprahepático con presiones de llenado bajas), en la cirrosis o hipertensión portal (la porta deja '+
+    'de ser fiable) y con pulsatilidad portal aumentada en personas delgadas sanas. '+
+    'Graduación de Beaubien-Souligny <i>et al.</i>, Ultrasound J 2020;12(1):16.</div>');
   var s4=card('🧠 Hallazgos — motor diagnóstico',
     '<div class="grid2">'+
     segf('hd_contract','Contractilidad VI',['Normal','Hipodinámica','Hiperdinámica'])+
@@ -1658,8 +1731,86 @@ TAB.hemodinamia=function(){
     '<div class="grid4" style="margin-top:10px"><div><label class="fl">VS</label><div class="in" id="h_vs" style="background:var(--bg2)">—</div></div><div><label class="fl">GC</label><div class="in" id="h_gc" style="background:var(--bg2)">—</div></div><div><label class="fl">IC</label><div class="in" id="h_ic" style="background:var(--bg2)">—</div></div><div><label class="fl">RVS</label><div class="in" id="h_rvs" style="background:var(--bg2)">—</div></div></div>'+
     '<div class="subhead">Predicción respuesta a fluidos</div><div class="grid3">'+inp('h_vti_esp','VTI esp (cm)','','number')+inp('h_vti_insp','VTI insp (cm)','','number')+'<div><label class="fl">ΔVTI</label><div class="in" id="h_dvti" style="background:var(--bg2)">—</div></div></div>'+
     '<div class="concl" id="h_concl" style="margin-top:12px"></div>');
-  return s1+s2+s3+s4+s5+pdf;
+  return s1+s2+sV+s3+s4+s5+pdf;
 };
+
+/* ═════════════ VEXUS — Venous Excess Ultrasound ═════════════
+   Graduación de Beaubien-Souligny et al., Ultrasound J 2020;12(1):16:
+
+     0 — VCI < 20 mm
+     1 — VCI ≥ 20 mm y NINGÚN vaso severo (cualquier combinación de normal o leve)
+     2 — VCI ≥ 20 mm y EXACTAMENTE UN vaso severo
+     3 — VCI ≥ 20 mm y DOS O MÁS vasos severos
+
+   El grado lo decide CUÁNTOS vasos están severos, no cuál es el peor. Un solo vaso severo
+   es grado 2, no 3: el 3 es el que carga la asociación fuerte con injuria renal aguda
+   (LR+ 6,37 en la cohorte original de cirugía cardíaca) y el que dispara la recomendación
+   de descongestión activa. Graduarlo por el peor vaso lo inflaría un grado.
+
+   Los tres vasos tienen tres categorías. No existe un nivel «moderado» intermedio.
+
+   El diámetro sale de `hd_vci_max`, el mismo campo de la tarjeta «VCI y precarga»: un
+   segundo campo para la misma medida permitiría que el informe diga un diámetro y el score
+   esté calculado sobre otro. */
+var VEXUS_VASOS=[{k:'vx_sh',lbl:'suprahepática'},{k:'vx_pv',lbl:'porta'},{k:'vx_ir',lbl:'intrarrenal'}];
+var VEXUS_INTERP={
+  0:'Sin congestión venosa sistémica significativa. Presión venosa central probablemente normal.',
+  1:'Congestión venosa leve. Monitorizar evolución. Considerar balance hídrico.',
+  2:'Congestión venosa moderada. Evaluar necesidad de descongestión. Riesgo de injuria renal aguda aumentado.',
+  3:'Congestión venosa severa. Alta asociación con injuria renal aguda (AKI). Considerar descongestión activa — diuréticos o ultrafiltración según contexto clínico. Reevaluar con tratamiento.'
+};
+var VEXUS_COLOR={0:'#22c55e',1:'#eab308',2:'#f59e42',3:'#ef4444'};
+
+/* Función PURA con la regla: recibe el diámetro y los tres valores crudos. La usan la
+   pantalla y el informe, para que no puedan contradecirse. El grado NO se guarda: se
+   recalcula siempre desde los cuatro datos crudos, que sí se guardan — un derivado
+   almacenado quedaría congelado con la versión de la regla del día que se guardó. */
+function vexusGrado(diam,sh,pv,ir){
+  var d=(diam===''||diam==null)?null:parseFloat(String(diam).replace(',','.'));
+  if(d==null||isNaN(d))return null;                       // sin VCI medida no hay score
+  var crudos=[sh,pv,ir], severos=[], evaluados=[];
+  VEXUS_VASOS.forEach(function(v,i){
+    var raw=(crudos[i]==null)?'':String(crudos[i]).trim();
+    if(raw==='')return;                                   // no evaluada
+    evaluados.push(v.lbl);
+    if(/^Severo/i.test(raw))severos.push(v.lbl);
+  });
+  /* SIN NINGÚN VASO EVALUADO NO HAY SCORE, ni siquiera 0. El protocolo gradúa 0 con sólo la
+     VCI < 20 mm, pero escribir «VEXUS 0» en un informe afirma que se aplicó el protocolo
+     venoso, y la mayoría de los estudios tienen la VCI medida y ninguna vena mirada. */
+  if(!evaluados.length)return {score:null,severos:[],evaluados:0,vciDiam:d};
+  /* La VCI manda: con < 20 mm el grado es 0 aunque los tres vasos estén severos. Los valores
+     se conservan y se muestran; esconderlos haría que una corrección posterior del diámetro
+     resucitara un VEXUS 3 que nadie volvió a mirar. */
+  if(d<20)return {score:0,severos:severos,evaluados:evaluados.length,vciDiam:d};
+  return {score:severos.length===0?1:severos.length===1?2:3,
+          severos:severos, evaluados:evaluados.length, vciDiam:d};
+}
+window.vexusGrado=vexusGrado;
+function vexusEstado(){ return vexusGrado(S.hd_vci_max,S.vx_sh,S.vx_pv,S.vx_ir); }
+window.vexusEstado=vexusEstado;
+
+function vexusRender(){
+  var elV=$('vx_vci'), elO=$('vx_out');
+  if(!elO)return;                                          // el tab no está en pantalla
+  var d=(S.hd_vci_max===''||S.hd_vci_max==null)?null:parseFloat(String(S.hd_vci_max).replace(',','.'));
+  if(elV)elV.innerHTML=(d==null||isNaN(d))?'sin cargar'
+    :('<b>'+d+' mm</b> — '+(d<20?'el grado es 0 aunque los vasos estén alterados':'el grado lo define cuántos vasos están severos: uno → 2, dos o más → 3'));
+  var st=vexusEstado();
+  if(!st||st.score==null){
+    elO.innerHTML=st?'<span style="color:var(--text2)">Falta evaluar al menos uno de los tres vasos. Sin ninguno no se informa VEXUS, ni siquiera 0: «VEXUS 0» afirma que se aplicó el protocolo venoso.</span>'
+      :'<span style="color:var(--text2)">Cargá la <b>VCI máx</b> en la tarjeta de arriba para poder calcular el score.</span>';
+    return;
+  }
+  elO.innerHTML='<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+    +'<span style="background:'+VEXUS_COLOR[st.score]+';color:#04121a;font-weight:800;padding:4px 12px;border-radius:8px;font-size:14px">VEXUS '+st.score+'</span>'
+    +'<span style="font-size:12px;color:var(--text2)">'
+    +(st.severos.length?(st.severos.length+' de '+st.evaluados+' evaluado'+(st.evaluados===1?'':'s')+' con patrón severo: '+escHtml(st.severos.join(', '))+(st.score===0?' — no cuentan: VCI &lt; 20 mm':''))
+                       :('ninguno de '+st.evaluados+' evaluado'+(st.evaluados===1?'':'s')+' con patrón severo'))
+    +'</span></div><div style="margin-top:8px;line-height:1.6">'+escHtml(VEXUS_INTERP[st.score])+'</div>'
+    +(st.evaluados<3?'<div style="margin-top:6px;color:#f59e42;font-size:11.5px">⚠ Sólo se evaluaron '+st.evaluados+' de los 3 vasos: el grado podría subir si se completan los restantes.</div>':'');
+}
+window.vexusRender=vexusRender;
 
 /* ───────── TAB Protocolos — wizards ───────── */
 var PROTO_LABEL={rush:'RUSH',falls:'FALLS',blue:'BLUE',fast:'FAST/eFAST',cause:'CAUSE',sesame:'SESAME',himap:'HIMAP'};
