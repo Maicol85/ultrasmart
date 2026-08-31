@@ -1576,10 +1576,81 @@ function usInterpHallazgos(){
   if(pp.length)out.push(['Pulmonar',pp.join('; ')]);
   if(f.fastPos)out.push(['Abdominal / FAST','Líquido libre en: '+f.fastRecesos.join(', ')]);
   if(f.tvp.length)out.push(['Vascular','Trombosis venosa profunda — segmento(s) no compresible(s): '+f.tvp.join(', ')+(S.va_lado?(' ('+S.va_lado+')'):'')]);
+  /* FUNCIÓN DEL VD. `c_fvd` sólo aparecía en un texto de pantalla: una función ventricular
+     derecha reducida —el hallazgo que orienta a TEP o a falla derecha— no llegaba al PDF. */
+  /* El tamaño se cita tal cual («VD dilatado», «VD/VI >1»): pasarlo a minúscula dejaba
+     «con vd dilatado», que en un informe se lee como un typo. */
+  /* El tamaño NO se repite si la fila cardíaca ya emitió «Dilatación de cavidades derechas»:
+     duplicar un hallazgo en un informe firmado hace contar dos donde hay uno. */
+  if(S.c_fvd==='Reducida')out.push(['Ventrículo derecho','Función sistólica del ventrículo derecho reducida'
+    +((S.c_vd&&S.c_vd!=='Normal'&&!f.vdDil)?', con '+S.c_vd:'')+'.']);
+  /* NEURO. La versión viva sólo emitía DVNO > 5,6 e IP > 1,4. buildConclusiones() —que
+     quedó huérfana y no la llama nadie— cubría además el rango borderline del DVNO, el
+     desvío de línea media y la pupilometría. Se porta acá, que es el camino que sí llega
+     al informe y al PDF. */
   var np=[];
-  if(f.dvno>5.6)np.push('DVNO elevado ('+fmt(f.dvno,1)+' mm) — elementos de hipertensión endocraneana');
+  if(f.dvno>0){
+    np.push(f.dvno<=5.0 ? ('DVNO normal ('+fmt(f.dvno,1)+' mm)')
+      : f.dvno<5.8 ? ('DVNO '+fmt(f.dvno,1)+' mm — valor borderline (normal ≤ 5,0 mm), correlacionar con la clínica')
+      : ('DVNO elevado ('+fmt(f.dvno,1)+' mm) — elementos de hipertensión endocraneana'));
+  }
   if(f.ipacm>1.4)np.push('IP ACM elevado ('+fmt(f.ipacm,2)+') — resistencia vascular cerebral aumentada');
+  else if(f.ipacm>1.1)np.push('IP ACM '+fmt(f.ipacm,2)+' — resistencia levemente aumentada');
+  var _lma=num(S.nr_lm_a),_lmb=num(S.nr_lm_b);
+  if(_lma!=null&&_lmb!=null){
+    /* La magnitud lleva signo (A = 3.er ventrículo→tabla derecha, B →izquierda), así que el
+       número crudo salía como «-6.0 mm», que en un informe se lee como error de carga. Y el
+       LADO —qué hemisferio está comprimido, que es lo accionable— no se decía. */
+    var _dlm=(_lma-_lmb)/2;
+    var _lado=Math.abs(_dlm)<0.05?'':(_dlm>0?' hacia la izquierda':' hacia la derecha');
+    np.push('desvío de línea media '+fmt(Math.abs(_dlm),1)+' mm'+_lado
+      +(Math.abs(_dlm)>4?' — significativo (> 4 mm)':' — no significativo'));
+  }
+  if(S.nr_pup_refl){
+    var _pv=num(S.nr_pup_vel);
+    np.push('reflejo pupilar '+String(S.nr_pup_refl).toLowerCase()
+      +(S.nr_pup_refl==='Ausente'?' — sospechar compromiso del tronco o herniación (descartar causas farmacológicas: midriáticos, atropina, sedación profunda, bloqueo neuromuscular)'
+        :(_pv!=null&&_pv<0.09?' con velocidad de contracción '+fmt(_pv,2)+' cm/s (< 0,09: respuesta lenta)':'')));
+  }
   if(np.length)out.push(['Neuro',np.join('; ')]);
+
+  /* AORTA ABDOMINAL. Se interpretaba en pantalla (#ab_ao_int) y no llegaba al PDF: un
+     aneurisma de 60 mm medido salía del informe como si no se hubiera mirado. */
+  var _aoMax=Math.max(num(S.ab_ao_sup)||0,num(S.ab_ao_med)||0,num(S.ab_ao_inf)||0);
+  if(_aoMax>0){
+    /* TODOS los niveles que empatan en el máximo, no el primero: en un AAA el nivel decide la
+       conducta (cuello proximal, viabilidad de EVAR), así que perder un segundo segmento
+       afectado no es cosmético. */
+    var _aoNiv=[['suprarrenal',num(S.ab_ao_sup)],['infrarrenal medio',num(S.ab_ao_med)],['distal',num(S.ab_ao_inf)]]
+      .filter(function(x){return x[1]===_aoMax;}).map(function(x){return x[0];});
+    var _aoTxt=_aoNiv.length?(', a nivel '+_aoNiv.join(' y ')):'';
+    /* Cota de plausibilidad. El campo pide milímetros: quien cargue «3.5» por un aneurisma
+       real de 35 mm obtiene 3,5, que es > 0 pero < 25, así que NO se emitía nada y el
+       aneurisma desaparecía del informe sin una sola advertencia. */
+    if(_aoMax<10)out.push(['Revisar','Aorta abdominal — diámetro máximo '+_aoMax+' mm, implausiblemente bajo. Los tres niveles van en MILÍMETROS (una aorta de 3,5 cm se carga 35).']);
+    else if(_aoMax>90)out.push(['Revisar','Aorta abdominal — diámetro máximo '+_aoMax+' mm, fuera de rango. Verificar la medición.']);
+    else if(_aoMax>=30)out.push(['Aorta abdominal','Aneurisma de aorta abdominal — diámetro máximo '+_aoMax+' mm (≥ 30 mm)'+_aoTxt+'. Requiere control y valoración vascular.']);
+    else if(_aoMax>=25)out.push(['Aorta abdominal','Ectasia aórtica — diámetro máximo '+_aoMax+' mm'+_aoTxt+' (25-29 mm). Control evolutivo.']);
+  }
+
+  /* ÍNDICE TOBILLO-BRAZO. Mismo caso: se calculaba en pantalla y no salía en ningún lado.
+     Un ITB < 0,4 es enfermedad arterial periférica severa. */
+  var _pat=num(S.va_pat),_pab=num(S.va_pab);
+  /* Las dos presiones tienen que ser positivas: sin el guard sobre _pat, una presión de
+     tobillo negativa daba un ITB negativo que caía en la rama más grave y el informe firmaba
+     «enfermedad arterial periférica severa» sobre un valor físicamente imposible.
+     El corte es <=0,90, no <0,90: la guía AHA/ACC toma 0,90 como diagnóstico de EAP, y 0,90
+     exacto es de los valores más alcanzables — antes producía silencio justo en el umbral. */
+  if(_pat>0&&_pab>0){
+    var _itb=_pat/_pab;
+    var _itbTxt=_itb>1.3?'vaso rígido o calcificado, no interpretable'
+      :_itb>0.9?'normal'
+      :_itb>=0.7?'enfermedad arterial periférica leve'
+      :_itb>=0.4?'enfermedad arterial periférica moderada'
+      :'enfermedad arterial periférica severa';
+    if(_itb>1.3||_itb<=0.9)out.push(['Índice tobillo-brazo','ITB '+fmt(_itb,2)+' — '+_itbTxt
+      +'. Medición única, sin lateralidad registrada.']);
+  }
   /* El diagnóstico del motor de shock de Hemodinámica: es lo que el médico ve en pantalla
      («🔴 Taponamiento cardíaco») y no llegaba a ningún informe. Se omite el estado
      «Completar evaluación», que no es un hallazgo sino la ausencia de uno. */
@@ -1604,6 +1675,38 @@ function usInterpHallazgos(){
       : ('sin patrón severo en '+_nEv+(_vx.score===0?'; VCI < 20 mm':''));
     out.push(['VEXUS','VEXUS '+_vx.score+' ('+_det+'): '+VEXUS_INTERP[_vx.score]
       +(_vx.evaluados<3?' Se evaluaron '+_vx.evaluados+' de los 3 vasos del protocolo.':'')]);
+  }
+  /* WEANING. El módulo más elaborado de la app —RSBI, función cardíaca pre-VE, función
+     diafragmática, score LUS de 12 regiones y un integrador de 4 dominios— no llegaba a
+     ningún informe: la única función que sabía redactarlo era buildConclusiones(), que
+     quedó huérfana y nadie llama. Y mientras tanto había una casilla «Incluir Weaning en el
+     informe PDF» que no gateaba nada, o sea que la interfaz prometía lo que el código no
+     hacía. Se emite acá, que es el camino vivo. */
+  /* GUARD OBLIGATORIO, y ANTES de llamar a wnDomains(). Dos razones:
+     1. wnDomains() enciende dominios con claves `c_*` (FEVI) y con las `wn_lus_*` que
+        seedWeaning() rellena solo desde `pu_*`. Sin guard, un eco con FEVI severa y derrame
+        grande producía en el informe firmado «RIESGO ALTO de fallo de extubación» en un
+        paciente que puede no estar intubado: una valoración pre-extubación que nadie hizo.
+     2. wnDomains() llama a seedWeaning(), que ESCRIBE en S. Generar el PDF dejaba el estudio
+        con claves wn_* que el médico nunca cargó, y Guardados le pintaba el chip «Weaning».
+     Se exige al menos un campo que sólo se puede cargar a mano — los que seedWeaning NO
+     escribe—: RSBI, diafragma, función/volumen pleural o el tilde del párrafo. */
+  var _wnManual=!!(S.wn_f||S.wn_vt||S.wn_dexc||S.wn_dtei||S.wn_dtii||S.wn_diaf_pres
+                 ||S.wn_pleu_func||S.wn_pleu_vol||S.wn_integ_incl);
+  if(_wnManual&&typeof wnDomains==='function'&&typeof wnParrafo==='function'){
+    try{
+      var _wd=wnDomains();
+      /* El RSBI es el parámetro de cabecera del módulo y wnParrafo() no lo menciona en
+         ninguna rama: sin esto el PDF podía decir «RIESGO BAJO» con la pantalla mostrando
+         🔴 RSBI 140. Y como el RSBI NO es uno de los cuatro dominios del integrador, un
+         estudio con sólo el RSBI cargado no daba veredicto y quedaba fuera del informe
+         entero — justo el parámetro más usado del módulo. */
+      var _rf=num(S.wn_f),_rv=num(S.wn_vt);
+      var _rsbi=(_rf>0&&_rv>0)?(_rf/_rv):null;
+      var _rtxt=(_rsbi!=null)?('RSBI '+fmt(_rsbi,0)+(_rsbi>105?' (> 105 — alto riesgo de fallo de extubación)':_rsbi<65?' (< 65 — favorable)':' (65-105 — intermedio)')+'. '):'';
+      var _wp=(_wd&&_wd.integ&&_wd.integ.verdict)?String(wnParrafo(_wd)||'').trim():'';
+      if(_rtxt||_wp)out.push(['Weaning',(_rtxt+_wp).trim()]);
+    }catch(e){}
   }
   /* Los descriptivos van DESPUÉS de los interpretativos y antes del aviso de discrepancia. */
   if(typeof usDescriptivos==='function')Array.prototype.push.apply(out,usDescriptivos());
@@ -1643,7 +1746,7 @@ function usMotorConclusion(){
   else if(f.perfilA&&!f.feviRed) pulm.push('Pulmón seco. En contexto de insuficiencia respiratoria aguda se sugiere explorar territorio venoso para descartar TEP.');
   if(f.nCons>0&&f.plaps) pulm.push('Elementos de condensación alveolar. Compatible con neumonía o atelectasia.');
   if(f.fastPos) abd.push('FAST positivo — líquido libre en '+f.fastRecesos.join(', ')+'. Correlacionar con el estado hemodinámico; considerar origen hemorrágico.');
-  if(f.dvno>5.6) neuro.push('Elementos de hipertensión endocraneana (DVNO elevado).');
+  if(f.dvno>=5.8) neuro.push('Elementos de hipertensión endocraneana (DVNO elevado).');
   if(f.ipacm>1.4) neuro.push('Resistencia vascular cerebral aumentada. Descartar vasoespasmo o HIC.');
   var incompleta='';
   if(f.cardiacData&&!cv.length){
@@ -1709,7 +1812,11 @@ function generarPDF(){
   var INCL_MAP={'Cardíaco / hemodinámico':'cardiaco','Pulmonar':'pulmonar','Abdominal / FAST':'abdominal','Vascular':'vascular','Neuro':'neuro',
                 'Renal':'abdominal','Hepatobiliar':'abdominal','Ascitis':'abdominal','Vejiga':'abdominal',
                 'Vascular — otros':'vascular','Cardíaco — biometría':'cardiaco',
-                'VEXUS':'vascular'};
+                'VEXUS':'vascular','Ventrículo derecho':'cardiaco',
+                'Aorta abdominal':'abdominal','Índice tobillo-brazo':'vascular',
+                /* La casilla «Incluir Weaning» existía y no gateaba nada: ahora gatea la
+                   fila que efectivamente se emite. */
+                'Weaning':'weaning'};
   /* «Hemodinámica» y «Revisar» NO se mapean a propósito: el fallback `if(!t) return true`
      los deja pasar con cualquier selección de secciones. Un taponamiento y una contradicción
      entre pestañas tienen que estar en el informe se haya tildado lo que se haya tildado. */
@@ -1720,7 +1827,13 @@ function generarPDF(){
      FAST positivo y una FEVI severa cargados, tildar «Incluir Paciente» dejaba el informe
      sin hallazgos y además imprimía «Sin hallazgos positivos relevantes», o sea que una
      casilla titulada «incluir» borraba un FAST positivo y afirmaba normalidad. */
-  var _gates=Object.keys(INCL_MAP).map(function(k){return INCL_MAP[k];});
+  /* Sólo pueden ENCENDER el filtro las secciones que aportan filas de forma estable.
+     `weaning` filtra (está en INCL_MAP) pero no gatea: su fila existe sólo si hubo
+     evaluación, así que tildar la casilla sin weaning cargado volvía a encender el filtro y
+     descartaba todo lo demás — el mismo defecto que ya se había arreglado. */
+  var _noGatean={weaning:1};
+  var _gates=Object.keys(INCL_MAP).map(function(k){return INCL_MAP[k];})
+    .filter(function(t){return !_noGatean[t];});
   var anyIncl=(typeof INCL_TABS!=='undefined')&&_gates.some(function(t){return INCL_TABS[t]&&S['incl-'+t]==='1';});
   if(anyIncl){lines=lines.filter(function(l){var t=INCL_MAP[l[0]];if(!t||!INCL_TABS[t])return true;return S['incl-'+t]==='1';});}
   var ocultados=totalHallazgos-lines.length;
