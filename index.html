@@ -46,6 +46,14 @@
   #toast.show{opacity:1}
 
   /* ---------- BUTTONS ---------- */
+  /* ── Manual de uso ── */
+  .mnote{background:var(--bg3);border-left:3px solid var(--teal);border-radius:7px;padding:9px 11px;margin:10px 0;font-size:12.5px;line-height:1.6}
+  .mwarn{background:rgba(245,158,66,.10);border-left:3px solid #f59e42;border-radius:7px;padding:9px 11px;margin:10px 0;font-size:12.5px;line-height:1.6}
+  .mol,.mul{margin:8px 0 8px 18px;padding:0}
+  .mol li,.mul li{margin-bottom:6px;line-height:1.6}
+  .mtbl{width:100%;border-collapse:collapse;margin:10px 0;font-size:12px}
+  .mtbl th,.mtbl td{border:1px solid var(--border);padding:5px 8px;text-align:left;vertical-align:top}
+  .mtbl th{background:var(--head);font-weight:700;color:var(--text2)}
   .btn{padding:6px 13px;border-radius:7px;border:none;cursor:pointer;font-size:12px;font-weight:600;transition:opacity .15s}
   .btn:hover{opacity:.86}
   .btn-teal{background:var(--teal);color:#fff}
@@ -1207,7 +1215,12 @@ TOP.guardados=function(){
 };
 function cargarEstudio(id){var e=getEstudios().filter(function(x){return x.id===id;})[0];if(!e)return;S=JSON.parse(JSON.stringify(e.data));persist();goTab('paciente');toast('Estudio cargado');}
 window.cargarEstudio=cargarEstudio;
-function borrarEstudio(id){if(!confirm('¿Borrar este estudio?'))return;setEstudios(getEstudios().filter(function(x){return x.id!==id;}));topTab('guardados');toast('Estudio borrado');}
+/* Se borran también las imágenes de ESE estudio. Antes quedaban huérfanas en IndexedDB:
+   nada las referenciaba y el único modo de recuperar el espacio era «Borrar todas las
+   imágenes» en Configuración, que se lleva las de todos los estudios. */
+function borrarEstudio(id){if(!confirm('¿Borrar este estudio?'))return;setEstudios(getEstudios().filter(function(x){return x.id!==id;}));
+  imgAll(function(all){all.filter(function(x){return x.studyId===id;}).forEach(function(x){imgDel(x.id);});});
+  topTab('guardados');toast('Estudio borrado');}
 window.borrarEstudio=borrarEstudio;
 
 /* =====================================================================
@@ -1877,8 +1890,12 @@ function usInterpHallazgos(){
          🔴 RSBI 140. Y como el RSBI NO es uno de los cuatro dominios del integrador, un
          estudio con sólo el RSBI cargado no daba veredicto y quedaba fuera del informe
          entero — justo el parámetro más usado del módulo. */
-      var _rf=num(S.wn_f),_rv=num(S.wn_vt);
-      var _rsbi=(_rf>0&&_rv>0)?(_rf/_rv):null;
+      /* El RSBI se TOMA de wnDomains() y no se recalcula acá. La copia local dividía por el
+         volumen tidal en ml sin pasarlo a litros, así que el informe imprimía un RSBI mil
+         veces menor y caía SIEMPRE en «< 65 — favorable», incluido un RSBI de 140. Medido:
+         f=25 VT=350 daba 71 en pantalla y «RSBI 0 (< 65 — favorable)» en el PDF firmado.
+         Dos definiciones de la misma fórmula es exactamente cómo una de las dos se pudre. */
+      var _rsbi=(_wd&&_wd.rsbiVal!=null)?_wd.rsbiVal:null;
       var _rtxt=(_rsbi!=null)?('RSBI '+fmt(_rsbi,0)+(_rsbi>105?' (> 105 — alto riesgo de fallo de extubación)':_rsbi<65?' (< 65 — favorable)':' (65-105 — intermedio)')+'. '):'';
       var _wp=(_wd&&_wd.integ&&_wd.integ.verdict)?String(wnParrafo(_wd)||'').trim():'';
       if(_rtxt||_wp)out.push(['Weaning',(_rtxt+_wp).trim()]);
@@ -1963,7 +1980,7 @@ function usMotorConclusion(){
    al lado de decenas de emojis es una trampa. Esto es la lista blanca. */
 var PDF_MAPA={'≥':'>=','≤':'<=','≈':'~','→':'->','←':'<-','↑':'^','↓':'v','↻':'',
   'Δ':'delta ','−':'-','π':'pi','⁻':'-','⁵':'5','₂':'2','✓':'OK','✗':'x','✕':'x',
-  '·':'\u00B7','—':'\u2014','–':'\u2013'};
+  '·':'\u00B7','—':'\u2014','–':'\u2013','′':"'",'″':'"'};
 function pdfSano(v){
   var t=String(v==null?'':v);
   var out='';
@@ -2072,7 +2089,11 @@ function generarPDF(){
   var INCL_MAP={'Cardíaco / hemodinámico':'cardiaco','Pulmonar':'pulmonar','Abdominal / FAST':'abdominal','Vascular':'vascular','Neuro':'neuro',
                 'Renal':'abdominal','Hepatobiliar':'abdominal','Ascitis':'abdominal','Vejiga':'abdominal',
                 'Vascular — otros':'vascular','Cardíaco — biometría':'cardiaco',
-                'VEXUS':'vascular','Ventrículo derecho':'cardiaco',
+                /* VEXUS NO se mapea: vive en la tarjeta de Hemodinámica y comparte la VCI de
+                   esa pestaña. Mapeado a `vascular` se caía del informe al tildar «Incluir
+                   Cardíaco», y la casilla de Hemodinámica —que es donde el médico lo cargó—
+                   no lo rescataba. Sigue la misma regla que Hemodinámica: pasa siempre. */
+                'Ventrículo derecho':'cardiaco',
                 'Función diastólica':'cardiaco','Cardíaco — cuantitativo':'cardiaco',
                 'Respuesta a fluidos':'cardiaco',
                 /* Se mapea a `pulmonar` y no a `abdominal`: el campo vive en la pestaña del
@@ -2252,30 +2273,310 @@ window.labPDF=labPDF;window.renderLabTab=renderLabTab;
 /* =====================================================================
    AYUDA / MANUAL
    ===================================================================== */
+/* ── MANUAL DE USO ────────────────────────────────────────────────────────────
+   Cada entrada es [titulo, htmlContenido]. El contenido es HTML AUTORADO acá, no
+   entra nada del usuario, y por eso ayudaShow() lo inserta sin escapar; si algún
+   día se arma una sección con datos del estudio, hay que escapar ese pedazo.
+   Lo que el manual afirma está verificado contra el código: si se cambia una regla
+   —el corte de VEXUS, qué llega al PDF, cómo limpia el formulario— hay que
+   actualizar la sección correspondiente, porque un manual que miente es peor que
+   no tenerlo. */
 var AYUDA=[
- ['📋 ¿Qué es?','UltraSmart es una herramienta de ultrasonido point-of-care de la suite CeiboMed. Combina registro de estudios, cálculos automáticos, referencias y un módulo académico con quizzes. Todo se guarda localmente en tu dispositivo.'],
- ['⚡ Inicio rápido','1) Cargá los datos del paciente. 2) Completá el/los módulo/s POCUS. 3) Las conclusiones se generan solas. 4) Guardá (💾) y exportá el informe en PDF (📄).'],
- ['🫀 POCUS','Cardíaco, Pulmonar, Abdominal/FAST, Vascular y Ocular tienen modo básico. El modo Avanzado Plus agrega Simpson, VTI/GC, TAPSE, PSAP, ITB, carótida y Doppler transcraneal.'],
- ['💧 Hemodinámica','Ingresá los datos de VCI, VTI y PLR para calcular automáticamente PAD, Gasto Cardíaco y respuesta a volumen. En la sección de hallazgos, seleccioná los patrones observados — el motor diagnóstico cruza los datos y sugiere el tipo de shock con razonamiento clínico y orientación terapéutica. Usá el toggle al final para incluir en el PDF.'],
- ['📋 Protocolos','Seleccioná el protocolo (RUSH, FALLS, BLUE, FAST/eFAST, CAUSE, SESAME o HIMAP) y respondé las preguntas Sí/No. El sistema te guía paso a paso hasta el diagnóstico probable. Podés volver atrás con ← Atrás o reiniciar con 🔄 Reiniciar. Al llegar al resultado, usá el botón para incluirlo en el PDF.'],
- ['🔬 Procedimientos','Checklists guiados eco-asistidos: vías centrales, paracentesis, toracocentesis y artrocentesis, con registro de intentos, complicaciones y éxito.'],
- ['🫁 Traqueostomía','Completá la evaluación eco previa del cuello antes de iniciar. El sistema alerta automáticamente si hay contraindicaciones (tiroides interpuesto, vasos pretraqueales). Seguí el checklist de 23 ítems en 4 fases: pre-procedimiento, punción, dilatación y colocación de cánula. Verificá lung sliding bilateral al finalizar.'],
- ['📚 Académico','Para cada módulo: fundamentos, técnica, valores normales, hallazgos patológicos, fórmulas interactivas, galería de casos y un quiz de 5 preguntas.'],
- ['💾 Guardados','Cada estudio se guarda con sus imágenes. Podés abrirlos o borrarlos desde el panel Guardados.'],
- ['🔬 Laboratorio','Auditoría de uso: volumen de estudios, distribución por módulo, calidad (completitud), actividad académica y brechas. Exportable a PDF.'],
- ['📄 Informe PDF','Cada tab tiene un checkbox al final para incluirlo en el informe PDF. Solo los tabs seleccionados aparecen en el PDF. Si no hay ninguno seleccionado, el PDF incluye todo.']
+ ['📋 ¿Qué es?', [
+  '<p><b>UltraSmart</b> es una herramienta de ecografía a pie de cama (POCUS) para intensivistas, de la suite CeiboMed. Registra el estudio, calcula lo que se puede calcular, arma el informe solo y lo exporta en PDF.</p>',
+  '<p><b>Qué trae:</b> exploración por sistemas (cardíaco, hemodinámica, pulmonar, weaning, abdominal/FAST, neuro, vascular), siete protocolos guiados (RUSH, FALLS, BLUE, FAST/eFAST, CAUSE, SESAME, HIMAP), checklists de procedimientos eco-guiados, un módulo académico con quizzes y un laboratorio de auditoría de uso.</p>',
+  '<p><b>Dónde viven los datos:</b> todo queda en el navegador de este dispositivo —localStorage para el estudio y IndexedDB para las imágenes—. No se transmite nada a ningún servidor. Eso también quiere decir que <b>si se borra el navegador se pierde</b>: exportá los estudios que quieras conservar.</p>',
+  '<div class="mnote"><b>Lo que NO es.</b> No reemplaza el juicio clínico ni la ecografía formal. Las conclusiones automáticas son orientativas: cruzan los datos que vos cargaste y sugieren un patrón, no diagnostican. Nada de lo que dice esta app exime de integrar la clínica, el laboratorio y el resto del examen.</div>'
+ ].join('')],
+
+ ['⚡ Inicio rápido', [
+  '<p>Cuatro pasos:</p>',
+  '<ol class="mol">',
+  '<li><b>Entrar.</b> La sesión queda abierta 12 horas en este dispositivo.</li>',
+  '<li><b>Cargar el paciente.</b> Pestaña <b>Paciente</b>: nombre, documento, edad y sexo son los que salen en el encabezado del informe. El peso y la talla además calculan el IMC y la superficie corporal, que es el denominador de los índices.</li>',
+  '<li><b>Explorar.</b> Abrí la pestaña del sistema que estés mirando y cargá los hallazgos. Los cálculos y las conclusiones se actualizan solos, sin apretar nada.</li>',
+  '<li><b>Guardar y exportar.</b> El botón <b>💾 Guardar</b> archiva el estudio; <b>📄 PDF</b> genera el informe. Al guardar se pregunta si empezás un paciente nuevo — si decís que no, el estudio queda cargado para que puedas exportar el PDF.</li>',
+  '</ol>',
+  '<div class="mnote">No hace falta completar todo. La app informa lo que cargaste y calla lo que no: un campo vacío no aparece en el informe.</div>'
+ ].join('')],
+
+ ['🚨 Emergencia', [
+  '<p><b>FAST / eFAST — trauma.</b> Se recorre en <b>Protocolos</b> como un árbol de preguntas, y las ventanas también se pueden cargar sueltas en la pestaña <b>Abdominal / FAST</b>.</p>',
+  '<p>El protocolo evalúa, en este orden: <b>mecanismo</b> (se registra, no cambia qué ventanas se miran), <b>pericárdica subxifoidea</b>, <b>tórax</b> (la «e» del eFAST) y después las <b>ventanas abdominales</b> —Morrison, esplenorrenal y suprapúbica—.</p>',
+  '<ul class="mul">',
+  '<li>La ventana pericárdica se evalúa <b>en los dos mecanismos</b>, penetrante y cerrado.</li>',
+  '<li>El tórax se evalúa <b>siempre</b>, antes del abdomen. Si hay neumotórax, el resultado te ofrece <b>continuar con las ventanas abdominales</b>: descomprimir no descarta líquido libre.</li>',
+  '<li><b>Líquido libre + inestable</b> → laparotomía. <b>Líquido libre + estable</b> → TC con contraste.</li>',
+  '</ul>',
+  '<div class="mnote"><b>El negativo también se informa.</b> Si evaluaste las 4 ventanas, el informe dice «FAST negativo». Si evaluaste menos, dice <b>«FAST INCOMPLETO — no descarta líquido libre»</b>, porque con 2 de 4 ventanas no se hizo un FAST.</div>',
+  '<p><b>RUSH — shock.</b> Bomba, tanque y tubos. Se responde en <b>Protocolos</b> y cierra en un patrón de shock con su conducta orientativa.</p>',
+  '<div class="mwarn"><b>Cómo no perder el avance.</b> El recorrido de un protocolo vive sólo mientras estás en la pestaña: si te vas a otra pestaña y volvés, arranca de nuevo. Lo que sí queda guardado es el <b>resultado que incluiste</b> con «Incluir resultado en informe PDF». Si vas a necesitar el dato, incluilo antes de irte.</div>'
+ ].join('')],
+
+ ['🫁 Pulmonar', [
+  '<p><b>Protocolo BLUE.</b> Seis zonas —anterior superior, anterior inferior y PLAPS, de cada lado— y en cada una se marca el patrón:</p>',
+  '<ul class="mul">',
+  '<li><b>Normal (A):</b> líneas A horizontales, pulmón aireado.</li>',
+  '<li><b>Líneas B:</b> verticales, de la pleura al fondo. Dos o más zonas con B → síndrome intersticial (edema cardiogénico o SDRA).</li>',
+  '<li><b>Consolidación:</b> patrón tisular, «hepatización».</li>',
+  '<li><b>Derrame:</b> colección anecoica.</li>',
+  '</ul>',
+  '<p>Aparte se marcan el <b>deslizamiento pleural</b> y el <b>punto pulmonar</b>.</p>',
+  '<div class="mwarn"><b>Ausencia de sliding no es neumotórax.</b> El signo específico es el <b>punto pulmonar</b>: la frontera donde el deslizamiento aparece y desaparece. En un paciente en paro, con compresiones y sin ventilación efectiva, el sliding está abolido casi siempre — por eso los protocolos de PCR (CAUSE y SESAME) piden lung point antes de concluir neumotórax.</div>',
+  '<p><b>Evaluación pleural.</b> El lado y la magnitud del derrame se cargan en <b>Pulmonar</b>. Para la decisión de drenaje, la pestaña <b>Weaning</b> tiene una tabla que cruza tamaño, función y volumen.</p>'
+ ].join('')],
+
+ ['🫀 Cardíaco', [
+  '<p>Tres ventanas, en la pestaña <b>Cardíaco POCUS</b>.</p>',
+  '<p><b>Subcostal.</b> Pericardio y VCI. Es la ventana útil en el paciente ventilado y en el paro, cuando la paraesternal no da. El derrame marcado acá <b>cuenta por sí solo</b>: no necesita que la paraesternal también lo vea.</p>',
+  '<p><b>Paraesternal eje largo.</b> FEVI visual en cuatro categorías: <b>Normal · Reducida leve · Moderada · Severa</b>. También el derrame pericárdico graduado y el diámetro del VI.</p>',
+  '<p><b>Apical 4 cámaras.</b> Tamaño del VD respecto del VI y función del VD. Un <b>VD dilatado con función reducida</b> orienta a sobrecarga derecha aguda; si además hay TVP, a tromboembolismo.</p>',
+  '<p>El <b>modo avanzado</b> agrega Simpson (volúmenes), TAPSE, S′ lateral, FAC, PSAP y E/e′. Todos entran al informe <b>con su interpretación</b>, no como cifras sueltas: un TAPSE de 16 mm se informa como por debajo del corte de normalidad.</p>',
+  '<div class="mnote">Si cargás la misma medida en dos pestañas con valores distintos, el informe lo dice en una línea «Revisar» en vez de elegir una en silencio.</div>'
+ ].join('')],
+
+ ['🩸 VEXUS', [
+  '<p><b>Qué mide.</b> El grado de congestión venosa sistémica. Responde «¿este paciente está congestivo?», no «¿va a responder a fluidos?». Sirve para decidir <b>descongestión</b>.</p>',
+  '<p><b>Prerequisito: la VCI.</b> El score usa el <b>diámetro máximo de VCI</b> que ya cargaste en la tarjeta «VCI y precarga» de <b>Hemodinámica</b>. No hay un segundo campo: si hubiera dos, el informe podría decir un diámetro y el score estar calculado sobre otro.</p>',
+  '<p><b>Los tres vasos</b>, con Doppler pulsado:</p>',
+  '<table class="mtbl"><tr><th>Vaso</th><th>Normal</th><th>Leve</th><th>Severo</th></tr>',
+  '<tr><td>Suprahepática</td><td>S &gt; D</td><td>S &lt; D</td><td>reverso sistólico</td></tr>',
+  '<tr><td>Porta</td><td>pulsatilidad &lt; 30%</td><td>30-49%</td><td>≥ 50% o reverso</td></tr>',
+  '<tr><td>Intrarrenal</td><td>continuo</td><td>bifásico discontinuo</td><td>monofásico discontinuo</td></tr></table>',
+  '<p><b>La regla</b> (Beaubien-Souligny <i>et al.</i>, Ultrasound J 2020;12(1):16). El grado lo decide <b>cuántos</b> vasos están severos, <b>no cuál es el peor</b>:</p>',
+  '<table class="mtbl"><tr><th>Grado</th><th>Criterio</th><th>Interpretación</th></tr>',
+  '<tr><td><b>0</b></td><td>VCI &lt; 20 mm</td><td>Sin congestión significativa. PVC probablemente normal.</td></tr>',
+  '<tr><td><b>1</b></td><td>VCI ≥ 20 mm, ningún vaso severo</td><td>Congestión leve. Monitorizar; vigilar el balance.</td></tr>',
+  '<tr><td><b>2</b></td><td>VCI ≥ 20 mm, <b>un</b> vaso severo</td><td>Congestión moderada. Evaluar descongestión. Riesgo de injuria renal aguda aumentado.</td></tr>',
+  '<tr><td><b>3</b></td><td>VCI ≥ 20 mm, <b>dos o más</b> severos</td><td>Congestión severa. Alta asociación con AKI. Considerar descongestión activa y reevaluar.</td></tr></table>',
+  '<div class="mwarn"><b>El error más común:</b> graduar por el vaso peor. Un solo vaso severo es <b>grado 2</b>, no 3. El 3 es el que carga la asociación fuerte con AKI (LR+ 6,37 en la cohorte original de cirugía cardíaca) y el que dispara la recomendación de descongestión activa: inflarlo un grado lleva a diureticar a quien no corresponde.</div>',
+  '<p><b>Sin ningún vaso evaluado no se informa VEXUS, ni siquiera 0.</b> El protocolo gradúa 0 con sólo la VCI, pero escribir «VEXUS 0» en un informe afirma que se aplicó el protocolo venoso.</p>',
+  '<div class="mnote"><b>Disclaimer.</b> Integrar siempre con la clínica. El patrón venoso se altera <b>sin</b> que haya congestión en: insuficiencia tricuspídea severa (da reverso sistólico suprahepático con presiones de llenado bajas), cirrosis o hipertensión portal (la porta deja de ser fiable), y personas delgadas sanas (pulsatilidad portal aumentada). La fibrilación auricular, la ventilación mecánica y la fibrosis renal avanzada también modifican los patrones.</div>'
+ ].join('')],
+
+ ['🦵 Vascular', [
+  '<p><b>TVP por compresión.</b> Cuatro segmentos: femoral común, femoral superficial, poplítea y tibiales. El criterio es <b>la compresibilidad</b>: una vena normal colapsa por completo con la presión de la sonda.</p>',
+  '<ul class="mul">',
+  '<li>Marcá también el <b>lado</b>. Si ponés «Bilateral», el informe aclara que un descarte bilateral requiere 8 puntos de compresión y acá hay un solo juego de cuatro.</li>',
+  '<li>El negativo se informa: con los 4 segmentos evaluados dice «sin evidencia de TVP»; con menos, <b>«COMPRESIÓN VENOSA INCOMPLETA — no descarta TVP»</b>.</li>',
+  '</ul>',
+  '<p><b>Índice tobillo-brazo.</b> Presión de tobillo sobre presión de brazo. Se informa sólo si es anormal: &gt; 1,3 vaso rígido o calcificado (no interpretable) · <b>≤ 0,90 enfermedad arterial periférica</b> · &lt; 0,40 severa.</p>',
+  '<p><b>Acceso venoso central eco-guiado.</b> En <b>Procedimientos</b>. Elegí el sitio —<b>yugular interna, subclavia, femoral o PICC</b>—, seguí los pasos, tildá el checklist previo (coagulación, consentimiento, material estéril, monitorización) y registrá intentos, éxito, complicaciones y confirmación de posición.</p>',
+  '<div class="mnote">Verificá <b>lung sliding</b> en el mismo lado al terminar una yugular o una subclavia: la ausencia posterior a la punción orienta a neumotórax iatrogénico.</div>'
+ ].join('')],
+
+ ['🏥 Renal y abdominal', [
+  '<p><b>Riñones.</b> Tamaño e hidronefrosis (leve, moderada, severa), más un campo de observaciones. Todo llega al informe.</p>',
+  '<p><b>Vejiga.</b> Cargá los tres diámetros <b>en milímetros</b>. El volumen sale de la fórmula del elipsoide <b>0,52 × AP × T × L</b>, que se aplica en centímetros: la app divide por 10 antes de calcular.</p>',
+  '<ul class="mul">',
+  '<li><b>&lt; 100 ml</b> · <b>100-300 ml</b> · <b>&gt; 300 ml</b>.</li>',
+  '<li>Elegí el <b>momento de la medición</b>: 250 ml antes de orinar son una vejiga normalmente llena, y los mismos 250 ml como residuo post-miccional son vaciado incompleto. Sin ese dato el informe no emite juicio, lo aclara.</li>',
+  '</ul>',
+  '<div class="mwarn">Los tres diámetros van en <b>milímetros</b>. Cargar centímetros da un volumen mil veces menor —que redondeado se ve como «0 ml»—; la app avisa si el resultado es implausible.</div>',
+  '<p><b>Líquido libre.</b> Las ventanas del FAST cubren el traumático. Para el <b>no traumático</b> está el campo de ascitis, con su cuantía.</p>',
+  '<p><b>Aorta abdominal.</b> Tres niveles. ≥ 30 mm se informa como aneurisma —citando en qué nivel está el máximo, porque el nivel decide la conducta— y 25-29 mm como ectasia.</p>'
+ ].join('')],
+
+ ['💧 Hemodinámica', [
+  '<p><b>VCI y precarga.</b> Diámetro máximo y mínimo, colapso y modo ventilatorio. De acá sale la estimación de presión de aurícula derecha, y el diámetro máximo es el que usa VEXUS.</p>',
+  '<p><b>Gasto cardíaco.</b> Área del tracto de salida × VTI × frecuencia. Se calcula solo en cuanto cargás los tres datos.</p>',
+  '<div class="mwarn"><b>Atención a las unidades.</b> El mismo dato se puede cargar en dos tarjetas y <b>piden unidades distintas</b>: en «VTI / Gasto cardíaco» el DTSVI va en <b>milímetros</b>, y en «Hemodinámico completo» en <b>centímetros</b>. Cargar el número en el lugar equivocado da un gasto cardíaco cien veces mayor. El informe avisa si el resultado sale fuera del rango plausible (1-15 L/min) —en el PDF, no en pantalla— y si cargás las dos tarjetas con valores que no coinciden, lo dice en vez de elegir una en silencio.</div>',
+  '<p><b>PLR.</b> VTI basal y post-elevación pasiva de piernas: un aumento &gt; 12% sugiere que el paciente responde a volumen.</p>',
+  '<p><b>Motor de shock.</b> En «Hallazgos» marcá contractilidad, VCI, líneas B, VD, FAST, pericardio, TVP y sliding: la app cruza los ocho y propone un patrón —obstructivo, cardiogénico, hipovolémico o distributivo— con su razonamiento.</p>',
+  '<div class="mnote"><b>Para que la hemodinámica llegue al PDF</b> hay que tildar «Incluir Hemodinámica en el informe PDF» al pie de la pestaña. Eso agrega la VCI, el PLR y los valores de VS/GC/IC/RVS. El <b>diagnóstico</b> del motor de shock entra siempre, esté tildada o no.</div>'
+ ].join('')],
+
+ ['🔬 Procedimientos', [
+  '<p>Cuatro procedimientos con el mismo esquema: pasos, checklist previo y registro de lo que pasó.</p>',
+  '<ul class="mul">',
+  '<li><b>Vía central eco-guiada</b> — yugular interna, subclavia, femoral o PICC.</li>',
+  '<li><b>Paracentesis</b> — incluye «vejiga vacía» en el checklist.</li>',
+  '<li><b>Toracocentesis</b> — lado y volumen extraído.</li>',
+  '<li><b>Artrocentesis</b> — rodilla, hombro, tobillo, cadera, muñeca o codo.</li>',
+  '</ul>',
+  '<p><b>Traqueostomía percutánea eco-guiada</b> (Ciaglia Blue Rhino). Tiene evaluación ecográfica previa del cuello con <b>alertas automáticas</b>: istmo tiroideo interpuesto, vaso pretraqueal, tráquea desviada o distancia piel-tráquea &gt; 15 mm. Después, checklist de 23 ítems en 4 fases. Al terminar, verificá lung sliding bilateral.</p>',
+  '<div class="mnote">Los procedimientos llegan al PDF si tildás «Incluir Procedimientos» al pie de la pestaña. Se informan los campos cargados y cuántos ítems del checklist se completaron.</div>'
+ ].join('')],
+
+ ['🌬️ Weaning', [
+  '<p>Evaluación ecográfica antes de la prueba de ventilación espontánea. <b>Cuatro dominios</b> y un integrador, más el RSBI aparte.</p>',
+  '<p><b>RSBI</b> — frecuencia sobre volumen corriente. &lt; 65 favorable · 65-105 intermedio · <b>&gt; 105 alto riesgo de fallo</b>. Se informa siempre que lo cargues, pero <b>no alimenta el semáforo</b>: es un índice ventilatorio, no un dominio ecográfico.</p>',
+  '<p><b>Función cardíaca</b> — E/e′, E/A y TDA, con los cortes de la literatura de weaning (Lamia, Moschietto, Papanikolaou), que no son los mismos que los del eco convencional porque responden a otra pregunta. El TAPSE se registra y se informa, pero no cambia el color de este dominio.</p>',
+  '<p><b>Función diafragmática</b> — excursión (&lt; 1,1 cm predice fallo) e índice de engrosamiento (&lt; 30% predice fallo, &gt; 36% éxito).</p>',
+  '<p><b>Score LUS</b> — 12 regiones, cada una de 0 a 3, total sobre 36. &lt; 13 favorable · 13-17 intermedio · <b>&gt; 17 de riesgo</b>. Las regiones se pre-cargan desde lo que hayas puesto en Pulmonar, y podés corregirlas.</p>',
+  '<p><b>Derrame pleural</b> — el cuarto dominio. Cruza tamaño, función y volumen para la decisión de drenaje: un derrame severo enciende rojo por sí solo; uno moderado con función alterada, amarillo.</p>',
+  '<p><b>Semáforo integrador:</b> cruza esos cuatro —cardíaco, diafragma, LUS y pleural—. Cualquiera en rojo → <b>riesgo ALTO</b>; dos o más en amarillo → moderado; el resto, bajo.</p>',
+  '<div class="mnote">El weaning entra al informe sólo si cargaste algo <b>a mano</b> en esta pestaña. Si no, no se emite: los dominios se pueden encender con datos de otras pestañas y no correspondería afirmar que se hizo una valoración pre-extubación que nadie hizo.</div>'
+ ].join('')],
+
+ ['📄 Informe y PDF', [
+  '<p><b>El informe se arma solo.</b> No hay que redactarlo: la app recorre lo que cargaste y emite los hallazgos con su interpretación, más una conclusión integrada.</p>',
+  '<p><b>Qué llega al PDF:</b> los datos del paciente, los hallazgos por módulo, los protocolos que hayas incluido, la conclusión y hasta cuatro imágenes. La firma sale del médico configurado; si no hay ninguno, queda un renglón para completar a mano.</p>',
+  '<p><b>Las casillas «Incluir …».</b> Al pie de la mayoría de las pestañas de exploración hay una casilla. <b>Si no tildás ninguna, el informe lleva todo.</b></p>',
+  '<p>Las que <b>recortan</b> el informe son cinco: Cardíaco, Pulmonar, Abdominal/FAST, Vascular y Neuro. Tildá una y el informe se limita a esas secciones — y te avisa, en el propio PDF, que hubo hallazgos de otras que quedaron afuera. Las de <b>Hemodinámica</b> y <b>Procedimientos</b> funcionan al revés: <b>agregan</b> su bloque de valores y no recortan nada. Las demás no tienen efecto sobre el filtro.</p>',
+  '<div class="mnote">Está hecho así a propósito. Una casilla titulada «incluir» que <i>borra</i> un FAST positivo es una trampa: antes, tildar «Incluir Paciente» dejaba el informe sin un solo hallazgo y encima imprimía «Sin hallazgos positivos relevantes».</div>',
+  '<div class="mnote">Dos cosas entran <b>siempre</b>, se tilde lo que se tilde: el diagnóstico del motor de shock y las líneas «Revisar». No tendría sentido que un taponamiento o una contradicción entre pestañas dependieran de una casilla.</div>',
+  '<p><b>Los negativos se documentan.</b> Un FAST negativo o una compresión venosa negativa aparecen en el informe: es el resultado que hay que dejar asentado. Si el protocolo quedó a medias, el informe lo dice y aclara que <b>no descarta</b>.</p>',
+  '<div class="mwarn"><b>Arrastre entre pacientes.</b> Al guardar, la app pregunta si empezás un paciente nuevo. Si decís que sí, limpia el formulario y conserva la configuración del centro y la firma. <b>Si decís que no, el estudio sigue cargado</b> —para que puedas exportar el PDF— y todo lo que no borres pasa al paciente siguiente. Si hacés varios pacientes seguidos, aceptá «paciente nuevo» o usá 🧹 Limpiar antes de empezar el próximo.</div>'
+ ].join('')],
+
+ ['💾 Guardados', [
+  '<p>Cada estudio se guarda con sus imágenes y su fecha.</p>',
+  '<ul class="mul">',
+  '<li><b>Acordeón por mes.</b> El mes más reciente arranca abierto; los demás, plegados.</li>',
+  '<li><b>Búsqueda</b> por nombre o documento.</li>',
+  '<li><b>Filtros por módulo</b> —cardíaco, pulmonar, abdominal, vascular, VEXUS, hemodinámica, neuro, weaning, procedimientos—, con el número de estudios de cada uno. Sólo aparecen los que tienen alguno. Los estudios viejos con campos de pestañas que ya no existen se agrupan bajo <b>«Módulo retirado»</b>.</li>',
+  '<li>El contador dice <b>«Mostrando N de M»</b> cuando el resultado difiere del total.</li>',
+  '</ul>',
+  '<p>Cada estudio muestra sus módulos como etiquetas, y se puede <b>Abrir</b> o borrar con la <b>✕</b>. Abrir reemplaza el formulario actual por el guardado.</p>',
+  '<div class="mnote">El espacio del navegador no es infinito. Si se llena, la app avisa y el estudio no se pierde: borrá estudios viejos desde acá —al borrar un estudio se borran también sus imágenes— y volvé a guardar. Para borrar <b>todas</b> las imágenes de una vez, está el botón en <b>Configuración</b>.</div>'
+ ].join('')],
+
+ ['🧠 Neuro', [
+  '<p><b>DVNO — diámetro de la vaina del nervio óptico.</b> Se mide 3 mm por detrás del globo. Normal <b>≤ 5,0 mm</b>; entre 5,1 y 5,7 el informe lo marca como <b>borderline</b> y pide correlacionar con la clínica; desde <b>5,8 mm</b> informa elementos de hipertensión endocraneana.</p>',
+  '<p><b>Desvío de línea media.</b> Se cargan las dos distancias al tercer ventrículo y la app calcula el desvío como la semidiferencia. El informe da la <b>magnitud sin signo y el lado</b> —qué hemisferio está comprimido, que es lo accionable— y marca <b>&gt; 4 mm</b> como significativo.</p>',
+  '<p><b>Pupilometría.</b> Reflejo presente, lento o ausente, con velocidad de contracción (&lt; 0,09 cm/s es respuesta lenta).</p>',
+  '<p><b>Doppler transcraneal.</b> Velocidades sistólica, media y diastólica: la app calcula el índice de pulsatilidad. IP &gt; 1,4 informa resistencia vascular cerebral aumentada; Vm &gt; 120 cm/s hace considerar vasoespasmo.</p>',
+  '<p><b>Ocular.</b> Cristalino, desprendimiento de retina, hemorragia vítrea y cuerpo extraño.</p>',
+  '<div class="mwarn"><b>Muerte encefálica.</b> Los patrones de paro circulatorio cerebral —espigas sistólicas, flujo reverberante— se informan como <b>compatibles</b> y con la aclaración de que requieren confirmación por el protocolo institucional. La ecografía no establece el diagnóstico.</div>',
+  '<div class="mnote">Un reflejo pupilar ausente se informa junto con las causas farmacológicas a descartar: midriáticos, atropina, sedación profunda y bloqueo neuromuscular.</div>'
+ ].join('')],
+
+ ['❓ Preguntas frecuentes', [
+  '<p><b>Cargué un hallazgo y no aparece en el PDF.</b> Fijate si tildaste alguna casilla «Incluir …»: al tildar una, el informe se limita a esas secciones. Destildá todas para que salga todo.</p>',
+  '<p><b>El gasto cardíaco me da un disparate.</b> Casi siempre son las unidades: la tarjeta «VTI / Gasto cardíaco» pide el DTSVI en <b>milímetros</b> y «Hemodinámico completo» en <b>centímetros</b>.</p>',
+  '<p><b>El volumen vesical dice 0 ml.</b> Los tres diámetros van en milímetros. Si cargaste centímetros, el resultado es mil veces menor y la app lo marca como implausible.</p>',
+  '<p><b>Marqué una opción por error y no puedo desmarcarla.</b> Tocá <b>otra vez la misma opción</b> y vuelve a quedar vacía.</p>',
+  '<p><b>Empecé un protocolo, cambié de pestaña y perdí el avance.</b> El recorrido vive sólo mientras estás en la pestaña. Si vas a necesitarlo, usá «Incluir resultado en informe PDF» antes de salir: eso sí queda guardado.</p>',
+  '<p><b>Incluí un protocolo equivocado.</b> En la pestaña Protocolos, arriba, está la lista de los incluidos con un botón <b>Quitar</b> en cada uno.</p>',
+  '<p><b>El informe muestra dos diagnósticos que se contradicen.</b> Si incluiste dos protocolos que cierran en patrones distintos, la app lo avisa en pantalla y en el PDF. Quitá el que no corresponda antes de firmar.</p>',
+  '<p><b>Aparecen datos del paciente anterior.</b> Guardar no limpia salvo que aceptes «paciente nuevo». Usá 🧹 Limpiar antes de empezar otro paciente.</p>',
+  '<p><b>El botón de PDF no hace nada.</b> La librería que genera el PDF se carga de internet. Sin conexión —o si el archivo cambió— no se carga y la app avisa. El resto de la app funciona igual.</p>',
+  '<p><b>¿Se pierden los estudios si cierro el navegador?</b> No: quedan en este dispositivo. Se pierden si borrás los datos de navegación. Exportá lo que quieras conservar.</p>'
+ ].join('')]
 ];
 var curAyuda=0;
 function buildAyuda(){
-  var h='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div><div style="font-size:18px;font-weight:700;color:var(--teal3)">📖 Manual de UltraSmart</div><div class="hint">Guía de uso</div></div><button class="btn btn-ghost btn-sm" onclick="closeModal(\'modal-ayuda\')">✕</button></div>';
+  var h='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div><div style="font-size:18px;font-weight:700;color:var(--teal3)">📖 Manual de UltraSmart</div><div class="hint">Guía de uso</div></div><div style="display:flex;gap:6px"><button class="btn btn-blue btn-sm" onclick="ayudaPDF()">📥 Descargar manual (PDF)</button><button class="btn btn-ghost btn-sm" onclick="closeModal(\'modal-ayuda\')">✕</button></div></div>';
+  /* a[0] va sin escapar, igual que a[1] en ayudaShow(): AYUDA es contenido autorado en este
+     archivo. Si algún título pasa a componerse con datos del estudio, hay que escaparlo acá
+     con escHtml() — y además revisar ayudaPDF(), que ante un «<» en un nombre se comería el
+     resto de la línea al despojar las etiquetas. */
   h+='<div class="seg" style="flex-wrap:wrap;margin-bottom:12px" id="ayudaTabs">'+AYUDA.map(function(a,i){return '<button data-v="'+i+'" onclick="ayudaSel(this,'+i+')"'+(i===0?' class="on"':'')+'>'+a[0]+'</button>';}).join('')+'</div>';
   h+='<div id="ayudaCont" style="line-height:1.7;font-size:13px"></div>';
   $('ayudaBody').innerHTML=h;ayudaShow(0);
 }
+
+/* Descarga del manual completo en PDF. Reutiliza pdfBlindar() —el saneador WinAnsi— porque
+   el manual tiene ≥, ≤, ′ y flechas, y jsPDF con helvetica standard-14 pasa la CADENA ENTERA
+   a UTF-16 ante un solo carácter fuera del juego, dejándola ilegible.
+   OJO: pdfBlindar cubre lo que está en PDF_MAPA y en la lista blanca, no «todo símbolo». El ′
+   no estaba y se borraba callado: E/e′ salía «E/e» y S′ salía «S». Si agregás un símbolo nuevo
+   al manual, agregalo también a PDF_MAPA — y comprobalo descargando el PDF, no leyendo esto.
+   El HTML se aplana a texto en vez de rasterizar: el PDF pesa poco, se puede buscar y no
+   depende de cómo se vea la pantalla. */
+function ayudaPDF(){
+  if(!window.jspdf){toast('PDF no disponible: no se pudo cargar la librería');return;}
+  try{ ayudaPDFArmar(); }
+  catch(e){ /* El manual le enseña al usuario que un botón mudo es falta de conexión y que la
+               app siempre avisa. Sin esto, cualquier falla que no fuera la librería ausente
+               —un save() que lanza en un WebView sin createObjectURL— dejaba el botón mudo
+               y sin aviso, o sea que el propio manual mentía sobre el manual. */
+    toast('No se pudo generar el manual'); }
+}
+function ayudaPDFArmar(){
+  var doc=pdfBlindar(new window.jspdf.jsPDF({unit:'mm',format:'a4'}));
+  var W=doc.internal.pageSize.getWidth(), H=doc.internal.pageSize.getHeight();
+  var mL=16, anchoUtil=W-mL*2, y=0;
+  function salto(alto){ if(y+alto>H-16){doc.addPage();y=20;} }
+  function pie(){
+    var n=doc.internal.getNumberOfPages();
+    for(var i=1;i<=n;i++){doc.setPage(i);
+      doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(140,140,140);
+      doc.text('UltraSmart · Manual de uso · CeiboMed',mL,H-8);
+      doc.text(String(i)+' / '+n,W-mL,H-8,{align:'right'});}
+  }
+  doc.setFillColor(13,148,136);doc.rect(0,0,W,46,'F');
+  doc.setTextColor(255,255,255);doc.setFont('helvetica','bold');doc.setFontSize(24);
+  doc.text('UltraSmart',mL,24);
+  doc.setFont('helvetica','normal');doc.setFontSize(12);
+  doc.text('Manual de uso — ultrasonido point-of-care',mL,34);
+  y=58;
+  doc.setTextColor(30,30,30);doc.setFontSize(9.5);
+  var intro=doc.splitTextToSize('Guía de uso de la aplicación. Las conclusiones automáticas son orientativas y no reemplazan el juicio clínico. Los datos se guardan únicamente en este dispositivo.',anchoUtil);
+  doc.text(intro,mL,y);y+=intro.length*5+8;
+  doc.setFont('helvetica','bold');doc.setFontSize(11);doc.setTextColor(13,148,136);
+  doc.text('Contenido',mL,y);y+=7;
+  doc.setFont('helvetica','normal');doc.setFontSize(9.5);doc.setTextColor(40,40,40);
+  AYUDA.forEach(function(a,i){ salto(6);
+    /* El título va crudo: pdfSano ya descarta el emoji y colapsa el espacio doble. El
+       replace(/^\S+\s/) que había acá se llevaba la primera PALABRA de cualquier título sin
+       emoji («Glosario clínico» → «clínico»), y sólo en el PDF: la pestaña en pantalla usa
+       a[0] sin tocar, así que el documento firmado y la app decían cosas distintas. */
+    doc.text((i+1)+'. '+String(a[0]),mL+3,y); y+=5.4; });
+  /* Aplana el HTML autorado a texto: viñetas, filas de tabla con separadores, y los recuadros
+     con un prefijo para que se distingan sin depender del color.
+     Los recuadros se reconocen tolerando atributos y comillas: con igualdad literal de cadena,
+     agregarle un id o una clase al div dejaba de matchear y el recuadro perdía a la vez su
+     prefijo [ATENCIÓN] y su salto de línea, fusionándose con el párrafo anterior. En pantalla
+     se seguía viendo perfecto (el CSS matchea por clase), así que sólo se notaba descargando
+     el PDF y leyéndolo entero. Y es justo donde vive lo de mayor riesgo clínico. */
+  function aTexto(html){
+    return String(html)
+      .replace(/<div[^>]*\bclass="[^"]*\bmnote\b[^"]*"[^>]*>/g,'\n[NOTA] ')
+      .replace(/<div[^>]*\bclass="[^"]*\bmwarn\b[^"]*"[^>]*>/g,'\n[ATENCIÓN] ')
+      /* Las listas numeradas conservan su número. El <ol> se resuelve por BLOQUE y antes que
+         nada: los .replace corren en secuencia sobre la cadena entera, así que para cuando se
+         procesan los <li> sueltos ya no hay forma de saber a qué lista pertenece cada uno.
+         Aplanados a guiones, «Cuatro pasos:» quedaba seguido de cuatro viñetas sin orden. */
+      .replace(/<ol\b[^>]*>([\s\S]*?)<\/ol>/g,function(_,dentro){
+        var k=0;
+        return '\n'+dentro.replace(/<li>/g,function(){return '\n'+(++k)+'. ';})+'\n';
+      })
+      .replace(/<li>/g,'\n- ')
+      /* ul/ol/table CIERRAN con salto. Sin esto el último <li> quedaba pegado al párrafo
+         siguiente y —como la línea empieza con «- »— el párrafo absorbido se dibujaba
+         sangrado como parte de la viñeta: en Vascular los cortes del índice tobillo-brazo
+         aparecían como sub-ítem de la lista de compresión venosa. */
+      .replace(/<\/(div|p|h\d|ul|ol|table)>/g,'\n')
+      .replace(/<\/tr>/g,'\n')
+      .replace(/<\/t[hd]>\s*<t[hd]>/g,'  |  ')
+      .replace(/<[^>]+>/g,'')
+      .replace(/&nbsp;/g,' ').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&')
+      .split('\n').map(function(l){return l.replace(/\s+/g,' ').trim();})
+      .join('\n').replace(/\n{3,}/g,'\n\n').trim();
+  }
+  AYUDA.forEach(function(a,i){
+    doc.addPage();y=20;
+    doc.setFont('helvetica','bold');doc.setFontSize(14);doc.setTextColor(13,148,136);
+    var tit=doc.splitTextToSize((i+1)+'. '+String(a[0]),anchoUtil);
+    doc.text(tit,mL,y);y+=tit.length*7+2;
+    doc.setDrawColor(13,148,136);doc.setLineWidth(.4);doc.line(mL,y-2,W-mL,y-2);y+=5;
+    doc.setFont('helvetica','normal');doc.setFontSize(9.5);doc.setTextColor(30,30,30);
+    aTexto(a[1]).split('\n').forEach(function(par){
+      if(!par){y+=2.5;return;}
+      var destaca=/^\[(NOTA|ATENCIÓN)\]/.test(par), vineta=/^-\s/.test(par);
+      if(destaca)doc.setFont('helvetica','bold');
+      var sangria=vineta?4:0;
+      doc.splitTextToSize(par,anchoUtil-sangria).forEach(function(l){
+        salto(5.2); doc.text(l,mL+sangria,y); y+=4.8; });
+      if(destaca)doc.setFont('helvetica','normal');
+      y+=1.8;
+    });
+  });
+  pie();
+  doc.save('UltraSmart_Manual.pdf');
+  toast('📥 Manual descargado');
+}
+window.ayudaPDF=ayudaPDF;
+
 window.buildAyuda=buildAyuda;
 function ayudaSel(btn,i){Array.prototype.forEach.call(btn.parentNode.children,function(b){b.classList.remove('on');});btn.classList.add('on');ayudaShow(i);}
 window.ayudaSel=ayudaSel;
-function ayudaShow(i){$('ayudaCont').innerHTML='<p>'+escHtml(AYUDA[i][1])+'</p>';}
+/* Se inserta sin escapar A PROPÓSITO: AYUDA es contenido autorado en este archivo, no entra
+   nada del estudio ni del usuario. Si alguna sección pasa a componerse con datos cargados,
+   ese pedazo hay que escaparlo con escHtml(). */
+function ayudaShow(i){curAyuda=i;$('ayudaCont').innerHTML=AYUDA[i][1];}
 
 /* =====================================================================
    EXPORT / IMPORT / LIMPIAR / STORAGE INFO
@@ -2991,7 +3292,10 @@ function nwRecompute(){
   if($('wn_rsbi')){
     var d=wnDomains();
     /* RSBI */
-    if(d.rsbiVal!=null){setTxt('wn_rsbi',fmt(d.rsbiVal,0));setH('wn_rsbi_int',d.rsbiVal>105?'🔴 RSBI '+fmt(d.rsbiVal,0)+' (&gt;105) — alto riesgo de fallo de extubación.':'✅ RSBI '+fmt(d.rsbiVal,0)+' (≤105) — favorable para el weaning.');}
+    /* Tres tramos, los mismos que el informe: con dos, un RSBI de 90 se veía «✅ favorable»
+       en pantalla y «65-105 — intermedio» en el PDF. La pantalla no puede ser más optimista
+       que el documento que se firma. */
+    if(d.rsbiVal!=null){setTxt('wn_rsbi',fmt(d.rsbiVal,0));setH('wn_rsbi_int',d.rsbiVal>105?'🔴 RSBI '+fmt(d.rsbiVal,0)+' (&gt;105) — alto riesgo de fallo de extubación.':d.rsbiVal<65?'✅ RSBI '+fmt(d.rsbiVal,0)+' (&lt;65) — favorable para el weaning.':'🟡 RSBI '+fmt(d.rsbiVal,0)+' (65-105) — intermedio.');}
     else{setTxt('wn_rsbi','—');setH('wn_rsbi_int','');}
     /* Cardíaco */
     setH('wn_card_int', d.card.color?(d.card.msgs.length?d.card.msgs.join('<br>'):'✅ Sin criterios de disfunción diastólica de riesgo.'):'Ingrese parámetros cardíacos (se comparten con Cardíaco POCUS).');
